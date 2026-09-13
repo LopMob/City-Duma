@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Городская Дума — реестр</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&family=PT+Sans:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F7F5F0;
+    --paper-dim: #EFEBE2;
+    --ink: #1C1B18;
+    --ink-soft: #5B5749;
+    --rule: #D9D4C7;
+    --navy: #16283F;
+    --navy-soft: #1F3A5C;
+    --brass: #B08D57;
+    --danger: #A23B2E;
+    --danger-bg: #F5E7E4;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "PT Sans", sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  h1, h2, h3, .num {
+    font-family: "PT Serif", serif;
+    font-weight: 700;
+    margin: 0;
+  }
+  a { color: inherit; }
+
+  .layout { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 240px; flex-shrink: 0;
+    background: var(--navy);
+    color: #E9E4D8;
+    padding: 28px 0;
+    display: flex; flex-direction: column;
+  }
+  .brand {
+    padding: 0 24px 22px 24px;
+    border-bottom: 1px solid rgba(233,228,216,0.18);
+    margin-bottom: 10px;
+  }
+  .brand .crest {
+    font-family: "PT Serif", serif;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--brass);
+    margin-bottom: 4px;
+  }
+  .brand .title {
+    font-family: "PT Serif", serif;
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  nav.sections { flex: 1; padding-top: 8px; }
+  nav.sections a {
+    display: block;
+    padding: 11px 24px;
+    text-decoration: none;
+    color: #C9C2AF;
+    border-left: 3px solid transparent;
+    font-size: 14.5px;
+  }
+  nav.sections a:hover { color: #F2EEE3; background: rgba(255,255,255,0.04); }
+  nav.sections a.active {
+    color: #fff;
+    border-left-color: var(--brass);
+    background: rgba(255,255,255,0.06);
+  }
+  nav.sections a.disabled {
+    color: #6E6A5C; cursor: default; pointer-events: none;
+  }
+  nav.sections .soon {
+    font-size: 10.5px; letter-spacing: 0.03em; color: #8A8672;
+    margin-left: 6px;
+  }
+  .sidebar-foot {
+    padding: 16px 24px 0 24px;
+    font-size: 12px;
+    color: #7C7869;
+    border-top: 1px solid rgba(233,228,216,0.12);
+  }
+
+  main { flex: 1; padding: 40px 48px; max-width: 980px; }
+  .page-head { margin-bottom: 28px; }
+  .page-head h1 { font-size: 26px; }
+  .page-head .sub { color: var(--ink-soft); font-size: 14px; margin-top: 4px; }
+
+  .register { border-top: 1px solid var(--ink); }
+  .register-row {
+    display: flex; align-items: baseline;
+    padding: 20px 4px;
+    border-bottom: 1px solid var(--rule);
+    text-decoration: none; color: inherit;
+  }
+  .register-row:hover { background: var(--paper-dim); }
+  .register-row .num { font-size: 34px; width: 90px; color: var(--navy-soft); }
+  .register-row .label { font-size: 16px; }
+  .register-row .arrow { margin-left: auto; color: var(--ink-soft); font-size: 14px; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th {
+    text-align: left; font-family: "PT Sans", sans-serif; font-weight: 700;
+    font-size: 12.5px; color: var(--ink-soft);
+    border-bottom: 1px solid var(--ink);
+    padding: 8px 10px;
+  }
+  td { padding: 10px 10px; border-bottom: 1px solid var(--rule); font-size: 14.5px; vertical-align: top; }
+  .muted { color: var(--ink-soft); }
+  .tag {
+    display: inline-block; font-size: 12px; padding: 2px 8px;
+    border: 1px solid var(--rule); border-radius: 2px; color: var(--ink-soft);
+  }
+  .tag.active { border-color: var(--navy-soft); color: var(--navy-soft); background: #E9EEF3; }
+  .tag.inactive { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+
+  .panel {
+    border: 1px solid var(--rule);
+    padding: 18px 20px;
+    margin-top: 22px;
+    background: #FCFBF8;
+  }
+  .panel h3 { font-size: 15px; margin-bottom: 14px; }
+  .field-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: var(--ink-soft); }
+  .field input {
+    font-family: "PT Sans", sans-serif; font-size: 14px;
+    padding: 7px 9px; border: 1px solid var(--rule); background: #fff; color: var(--ink);
+    min-width: 160px;
+  }
+  .field input:focus, button:focus {
+    outline: 2px solid var(--navy-soft); outline-offset: 1px;
+  }
+  button {
+    font-family: "PT Sans", sans-serif; font-weight: 700; font-size: 13.5px;
+    padding: 8px 16px; border: 1px solid var(--navy);
+    background: var(--navy); color: #fff; cursor: pointer;
+  }
+  button:hover { background: var(--navy-soft); }
+
+  .banner {
+    padding: 12px 16px; margin-bottom: 18px; font-size: 14px;
+    border-left: 3px solid var(--danger); background: var(--danger-bg); color: var(--danger);
+  }
+  .banner.ok { border-left-color: #3E6B47; background: #EAF2EB; color: #2E4E35; }
+  .empty { color: var(--ink-soft); font-size: 14px; padding: 16px 0; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="crest">РЕЕСТР · ЛР1</div>
+      <div class="title">Городская&nbsp;Дума</div>
+    </div>
+    <nav class="sections" id="nav">
+      <a href="#/" data-key="">Главная</a>
+      <a href="#/deputies" data-key="deputies">Депутаты</a>
+      <a href="#/commissions" data-key="commissions">Комиссии</a>
+      <a class="disabled" data-key="membership">Состав комиссий <span class="soon">(задача #2)</span></a>
+      <a class="disabled" data-key="attendance">Посещаемость <span class="soon">(задача #3)</span></a>
+    </nav>
+    <div class="sidebar-foot">API: <span id="api-status">…</span></div>
+  </aside>
+  <main id="app"></main>
+</div>
+
+<script>
+const app = document.getElementById('app');
+const navLinks = document.querySelectorAll('#nav a:not(.disabled)');
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  let body = null;
+  try { body = await res.json(); } catch (e) { /* no body */ }
+  if (!res.ok) {
+    const message = (body && body.detail) ? body.detail : `Ошибка ${res.status}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+function banner(message, ok) {
+  return `<div class="banner${ok ? ' ok' : ''}">${message}</div>`;
+}
+
+function setActiveNav(key) {
+  navLinks.forEach(a => a.classList.toggle('active', a.dataset.key === key));
+}
+
+async function checkHealth() {
+  const el = document.getElementById('api-status');
+  try {
+    const h = await api('/health');
+    el.textContent = h.status === 'ok' ? 'на связи' : 'проблема с БД';
+  } catch (e) {
+    el.textContent = 'недоступен';
+  }
+}
+
+// ---------- Главная ----------
+async function renderHome() {
+  setActiveNav('');
+  app.innerHTML = `<div class="page-head"><h1>Главная</h1><div class="sub">Сводка по реестру на текущий момент</div></div><div id="stats" class="register"></div>`;
+  const stats = document.getElementById('stats');
+  try {
+    const [deputies, commissions] = await Promise.all([api('/deputies'), api('/commissions')]);
+    stats.innerHTML = `
+      <a class="register-row" href="#/deputies"><span class="num">${deputies.length}</span><span class="label">Депутаты</span><span class="arrow">→</span></a>
+      <a class="register-row" href="#/commissions"><span class="num">${commissions.length}</span><span class="label">Комиссии</span><span class="arrow">→</span></a>
+    `;
+  } catch (e) {
+    stats.innerHTML = banner('Не удалось загрузить сводку: ' + e.message);
+  }
+}
+
+// ---------- Депутаты ----------
+async function renderDeputies() {
+  setActiveNav('deputies');
+  app.innerHTML = `
+    <div class="page-head"><h1>Депутаты</h1><div class="sub">Полный список депутатов городской думы</div></div>
+    <div id="msg"></div>
+    <table>
+      <thead><tr><th>№</th><th>ФИО</th><th>Партия</th><th>Округ</th><th>Статус</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="empty">Загрузка…</td></tr></tbody>
+    </table>
+    <div class="panel">
+      <h3>Добавить депутата</h3>
+      <form id="add-form">
+        <div class="field-row">
+          <div class="field"><label>ФИО *</label><input name="full_name" required minlength="2"></div>
+          <div class="field"><label>Партия</label><input name="party"></div>
+          <div class="field"><label>Округ</label><input name="election_district"></div>
+          <button type="submit">Добавить</button>
+        </div>
+      </form>
+    </div>
+  `;
+  const msg = document.getElementById('msg');
+  const rows = document.getElementById('rows');
+
+  async function load() {
+    try {
+      const list = await api('/deputies');
+      rows.innerHTML = list.length ? list.map(d => `
+        <tr>
+          <td>${d.id}</td>
+          <td>${d.full_name}</td>
+          <td class="muted">${d.party || '—'}</td>
+          <td class="muted">${d.election_district || '—'}</td>
+          <td>${d.is_active ? '<span class="tag active">действующий</span>' : '<span class="tag inactive">неактивен</span>'}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="5" class="empty">Пока нет ни одного депутата — добавьте первого ниже.</td></tr>`;
+    } catch (e) {
+      rows.innerHTML = `<tr><td colspan="5">${banner('Не удалось загрузить список: ' + e.message)}</td></tr>`;
+    }
+  }
+
+  document.getElementById('add-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const payload = { full_name: fd.get('full_name') };
+    if (fd.get('party')) payload.party = fd.get('party');
+    if (fd.get('election_district')) payload.election_district = fd.get('election_district');
+    try {
+      await api('/deputies', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      msg.innerHTML = '';
+      ev.target.reset();
+      load();
+    } catch (e) {
+      msg.innerHTML = banner('Не удалось добавить: ' + e.message);
+    }
+  });
+
+  load();
+}
+
+// ---------- Комиссии ----------
+async function renderCommissions() {
+  setActiveNav('commissions');
+  app.innerHTML = `
+    <div class="page-head"><h1>Комиссии</h1><div class="sub">Список комиссий городской думы</div></div>
+    <div id="msg"></div>
+    <table>
+      <thead><tr><th>№</th><th>Название</th><th>Описание</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="3" class="empty">Загрузка…</td></tr></tbody>
+    </table>
+    <div class="panel">
+      <h3>Создать комиссию</h3>
+      <form id="add-form">
+        <div class="field-row">
+          <div class="field"><label>Название *</label><input name="name" required minlength="2"></div>
+          <div class="field"><label>Описание</label><input name="description"></div>
+          <button type="submit">Создать</button>
+        </div>
+      </form>
+    </div>
+  `;
+  const msg = document.getElementById('msg');
+  const rows = document.getElementById('rows');
+
+  async function load() {
+    try {
+      const list = await api('/commissions');
+      rows.innerHTML = list.length ? list.map(c => `
+        <tr><td>${c.id}</td><td>${c.name}</td><td class="muted">${c.description || '—'}</td></tr>
+      `).join('') : `<tr><td colspan="3" class="empty">Пока нет ни одной комиссии — создайте первую ниже.</td></tr>`;
+    } catch (e) {
+      rows.innerHTML = `<tr><td colspan="3">${banner('Не удалось загрузить список: ' + e.message)}</td></tr>`;
+    }
+  }
+
+  document.getElementById('add-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const payload = { name: fd.get('name') };
+    if (fd.get('description')) payload.description = fd.get('description');
+    try {
+      await api('/commissions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      msg.innerHTML = '';
+      ev.target.reset();
+      load();
+    } catch (e) {
+      msg.innerHTML = banner('Не удалось создать: ' + e.message);
+    }
+  });
+
+  load();
+}
+
+// ---------- Router ----------
+// NB: разделы «Состав комиссий» (детали комиссии, председатель, заседания)
+// и «Посещаемость» добавляются сюда участниками, реализующими задачи #2 и
+// #3 (см. docs/tasks/ISSUE-2-membership.md, ISSUE-3-meetings-attendance.md
+// и docs/UI.md) — по тому же паттерну: новая функция render*(), новый
+// пункт в #nav, новая ветка в route().
+function route() {
+  const hash = location.hash || '#/';
+  if (hash === '#/' || hash === '') renderHome();
+  else if (hash === '#/deputies') renderDeputies();
+  else if (hash === '#/commissions') renderCommissions();
+  else renderHome();
+}
+
+window.addEventListener('hashchange', route);
+checkHealth();
+route();
+</script>
+</body>
+</html>
