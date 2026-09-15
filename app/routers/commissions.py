@@ -1,19 +1,23 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.database import get_db
 
+DbSession = Annotated[Session, Depends(get_db)]
+
 router = APIRouter(prefix="/commissions", tags=["commissions"])
 
 
 @router.get("", response_model=list[schemas.CommissionRead])
-def list_commissions(db: Session = Depends(get_db)):
+def list_commissions(db: DbSession):
     return crud.list_commissions(db)
 
 
 @router.post("", response_model=schemas.CommissionRead, status_code=201)
-def create_commission(payload: schemas.CommissionCreate, db: Session = Depends(get_db)):
+def create_commission(payload: schemas.CommissionCreate, db: DbSession):
     try:
         return crud.create_commission(db, payload)
     except crud.ConflictError as exc:
@@ -21,7 +25,7 @@ def create_commission(payload: schemas.CommissionCreate, db: Session = Depends(g
 
 
 @router.get("/{commission_id}", response_model=schemas.CommissionRead)
-def get_commission(commission_id: int, db: Session = Depends(get_db)):
+def get_commission(commission_id: int, db: DbSession):
     commission = crud.get_commission(db, commission_id)
     if commission is None:
         raise HTTPException(status_code=404, detail="Комиссия не найдена")
@@ -30,7 +34,7 @@ def get_commission(commission_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/{commission_id}", response_model=schemas.CommissionRead)
 def update_commission(
-    commission_id: int, payload: schemas.CommissionUpdate, db: Session = Depends(get_db)
+    commission_id: int, payload: schemas.CommissionUpdate, db: DbSession
 ):
     commission = crud.get_commission(db, commission_id)
     if commission is None:
@@ -42,7 +46,7 @@ def update_commission(
 
 
 @router.delete("/{commission_id}", status_code=204)
-def delete_commission(commission_id: int, db: Session = Depends(get_db)):
+def delete_commission(commission_id: int, db: DbSession):
     commission = crud.get_commission(db, commission_id)
     if commission is None:
         raise HTTPException(status_code=404, detail="Комиссия не найдена")
@@ -50,7 +54,7 @@ def delete_commission(commission_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{commission_id}/members", response_model=list[schemas.MembershipRead])
-def list_members(commission_id: int, db: Session = Depends(get_db)):
+def list_members(commission_id: int, db: DbSession):
     if crud.get_commission(db, commission_id) is None:
         raise HTTPException(status_code=404, detail="Комиссия не найдена")
     return crud.list_memberships(db, commission_id)
@@ -59,9 +63,7 @@ def list_members(commission_id: int, db: Session = Depends(get_db)):
 @router.post(
     "/{commission_id}/members", response_model=schemas.MembershipRead, status_code=201
 )
-def add_member(
-    commission_id: int, payload: schemas.MembershipCreate, db: Session = Depends(get_db)
-):
+def add_member(commission_id: int, payload: schemas.MembershipCreate, db: DbSession):
     if crud.get_commission(db, commission_id) is None:
         raise HTTPException(status_code=404, detail="Комиссия не найдена")
     if crud.get_deputy(db, payload.deputy_id) is None:
