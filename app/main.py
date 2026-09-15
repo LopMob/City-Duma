@@ -43,4 +43,3 @@ def validation_handler(request: Request, exc: RequestValidationError):
         status_code=422,
         content={"detail": "Некорректные данные запроса", "errors": exc.errors()},
     )
-
