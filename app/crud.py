@@ -27,7 +27,9 @@ def create_deputy(db: Session, data: schemas.DeputyCreate) -> models.Deputy:
     return deputy
 
 
-def update_deputy(db: Session, deputy: models.Deputy, data: schemas.DeputyUpdate) -> models.Deputy:
+def update_deputy(
+    db: Session, deputy: models.Deputy, data: schemas.DeputyUpdate
+) -> models.Deputy:
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(deputy, field, value)
     db.commit()
@@ -70,7 +72,11 @@ def update_commission(
 ) -> models.Commission:
     updates = data.model_dump(exclude_unset=True)
     new_name = updates.get("name")
-    if new_name and new_name != commission.name and get_commission_by_name(db, new_name):
+    if (
+        new_name
+        and new_name != commission.name
+        and get_commission_by_name(db, new_name)
+    ):
         raise ConflictError(f"Комиссия с названием '{new_name}' уже существует")
     for field, value in updates.items():
         setattr(commission, field, value)
