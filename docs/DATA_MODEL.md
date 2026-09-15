@@ -57,10 +57,12 @@ erDiagram
 ## Реализовано в `main`
 
 - `Deputy`, `Commission` — CRUD, без бизнес-правил (задача #1).
+- `CommissionMembership` — таблица `commission_memberships`, миграция
+  `0002`; уникальная пара `(commission_id, deputy_id)`, правило «не более
+  одного председателя на комиссию» (задача #2).
 
 ## В работе / предстоит
 
-- `CommissionMembership` — задача #2 (см. `docs/tasks/ISSUE-2-membership.md`).
 - `Meeting`, `Attendance` — задача #3 (см. `docs/tasks/ISSUE-3-meetings-attendance.md`).
 
 ## Ключевые ограничения (целевые, для справки)

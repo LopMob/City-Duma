@@ -6,7 +6,7 @@
 | # | Участник      | Сущности                              | Ветка                              | Статус         |
 |---|---------------|----------------------------------------|-------------------------------------|----------------|
 | 1 | (вы)          | `Deputy`, `Commission`                 | `feature/deputies-commissions`      | готово, в `main` |
-| 2 | одногруппник 1| `CommissionMembership` + правило «один председатель» | `feature/commission-membership` | см. `docs/tasks/ISSUE-2-membership.md` |
+| 2 | одногруппник 1| `CommissionMembership` + правило «один председатель» | `feature/commission-membership` | готово, PR в `main` |
 | 3 | одногруппник 2| `Meeting`, `Attendance` + правило «кворум» | `feature/meetings-attendance` | см. `docs/tasks/ISSUE-3-meetings-attendance.md` |
 
 Порядок задач не случаен: #2 и #3 зависят от таблиц `deputies` и

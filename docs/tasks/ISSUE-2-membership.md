@@ -21,3 +21,5 @@
 **Зависит от**: `Deputy`, `Commission` (уже в `main`).
 
 **Ветка**: `feature/commission-membership`
+
+**Статус**: реализовано, PR в `main`.
