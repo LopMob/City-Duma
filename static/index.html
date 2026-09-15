@@ -134,12 +134,12 @@
   .field-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
   .field { display: flex; flex-direction: column; gap: 4px; }
   .field label { font-size: 12px; color: var(--ink-soft); }
-  .field input {
+  .field input, .field select {
     font-family: "PT Sans", sans-serif; font-size: 14px;
     padding: 7px 9px; border: 1px solid var(--rule); background: #fff; color: var(--ink);
     min-width: 160px;
   }
-  .field input:focus, button:focus {
+  .field input:focus, .field select:focus, button:focus {
     outline: 2px solid var(--navy-soft); outline-offset: 1px;
   }
   button {
@@ -148,6 +148,15 @@
     background: var(--navy); color: #fff; cursor: pointer;
   }
   button:hover { background: var(--navy-soft); }
+  button.small {
+    font-size: 12.5px; padding: 4px 10px;
+    background: #fff; color: var(--navy); margin-right: 6px;
+  }
+  button.small:hover { background: var(--paper-dim); }
+  button.small.danger { border-color: var(--danger); color: var(--danger); }
+  .tag.chair { border-color: var(--brass); color: #7A5F33; background: #F4ECDD; }
+  .field.check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 8px; }
+  .field.check input { min-width: 0; }
 
   .banner {
     padding: 12px 16px; margin-bottom: 18px; font-size: 14px;
@@ -168,7 +177,7 @@
       <a href="#/" data-key="">Главная</a>
       <a href="#/deputies" data-key="deputies">Депутаты</a>
       <a href="#/commissions" data-key="commissions">Комиссии</a>
-      <a class="disabled" data-key="membership">Состав комиссий <span class="soon">(задача #2)</span></a>
+      <a href="#/membership" data-key="membership">Состав комиссий</a>
       <a class="disabled" data-key="attendance">Посещаемость <span class="soon">(задача #3)</span></a>
     </nav>
     <div class="sidebar-foot">API: <span id="api-status">…</span></div>
@@ -339,17 +348,118 @@ async function renderCommissions() {
   load();
 }
 
+// ---------- Состав комиссий ----------
+async function renderMembership() {
+  setActiveNav('membership');
+  app.innerHTML = `
+    <div class="page-head"><h1>Состав комиссий</h1><div class="sub">Члены комиссий и председатели</div></div>
+    <div id="msg"></div>
+    <div class="field-row">
+      <div class="field"><label>Комиссия</label><select id="commission-select"></select></div>
+    </div>
+    <table>
+      <thead><tr><th>№</th><th>Депутат</th><th>Роль</th><th>В составе с</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="empty">Загрузка…</td></tr></tbody>
+    </table>
+    <div class="panel">
+      <h3>Включить депутата в комиссию</h3>
+      <form id="add-form">
+        <div class="field-row">
+          <div class="field"><label>Депутат *</label><select name="deputy_id" id="deputy-select" required></select></div>
+          <div class="field check"><input type="checkbox" name="is_chair" id="is-chair"><label for="is-chair">председатель</label></div>
+          <button type="submit">Включить</button>
+        </div>
+      </form>
+    </div>
+  `;
+  const msg = document.getElementById('msg');
+  const rows = document.getElementById('rows');
+  const commissionSelect = document.getElementById('commission-select');
+  const deputySelect = document.getElementById('deputy-select');
+  let deputiesById = {};
+
+  try {
+    const [commissions, deputies] = await Promise.all([api('/commissions'), api('/deputies')]);
+    if (!commissions.length) {
+      rows.innerHTML = `<tr><td colspan="5" class="empty">Сначала создайте комиссию в разделе «Комиссии».</td></tr>`;
+      return;
+    }
+    commissionSelect.innerHTML = commissions.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    deputySelect.innerHTML = deputies.map(d => `<option value="${d.id}">${d.full_name}</option>`).join('');
+    deputies.forEach(d => { deputiesById[d.id] = d.full_name; });
+  } catch (e) {
+    rows.innerHTML = `<tr><td colspan="5">${banner('Не удалось загрузить данные: ' + e.message)}</td></tr>`;
+    return;
+  }
+
+  async function load() {
+    try {
+      const list = await api(`/commissions/${commissionSelect.value}/members`);
+      rows.innerHTML = list.length ? list.map(m => `
+        <tr>
+          <td>${m.id}</td>
+          <td>${deputiesById[m.deputy_id] || ('id ' + m.deputy_id)}</td>
+          <td>${m.is_chair ? '<span class="tag chair">председатель</span>' : '<span class="muted">член комиссии</span>'}</td>
+          <td class="muted">${m.joined_at}</td>
+          <td>
+            <button class="small" data-chair="${m.id}" data-value="${!m.is_chair}">${m.is_chair ? 'Снять председателя' : 'Сделать председателем'}</button>
+            <button class="small danger" data-remove="${m.id}">Исключить</button>
+          </td>
+        </tr>
+      `).join('') : `<tr><td colspan="5" class="empty">В комиссии пока никого нет — добавьте депутата ниже.</td></tr>`;
+    } catch (e) {
+      rows.innerHTML = `<tr><td colspan="5">${banner('Не удалось загрузить состав: ' + e.message)}</td></tr>`;
+    }
+  }
+
+  commissionSelect.addEventListener('change', () => { msg.innerHTML = ''; load(); });
+
+  rows.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('button');
+    if (!btn) return;
+    try {
+      if (btn.dataset.chair) {
+        await api(`/memberships/${btn.dataset.chair}`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ is_chair: btn.dataset.value === 'true' }),
+        });
+      } else if (btn.dataset.remove) {
+        await api(`/memberships/${btn.dataset.remove}`, { method: 'DELETE' });
+      }
+      msg.innerHTML = '';
+      load();
+    } catch (e) {
+      msg.innerHTML = banner(e.message);
+    }
+  });
+
+  document.getElementById('add-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const payload = { deputy_id: Number(fd.get('deputy_id')), is_chair: fd.get('is_chair') === 'on' };
+    try {
+      await api(`/commissions/${commissionSelect.value}/members`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      msg.innerHTML = '';
+      ev.target.reset();
+      load();
+    } catch (e) {
+      msg.innerHTML = banner('Не удалось включить в комиссию: ' + e.message);
+    }
+  });
+
+  load();
+}
+
 // ---------- Router ----------
-// NB: разделы «Состав комиссий» (детали комиссии, председатель, заседания)
-// и «Посещаемость» добавляются сюда участниками, реализующими задачи #2 и
-// #3 (см. docs/tasks/ISSUE-2-membership.md, ISSUE-3-meetings-attendance.md
-// и docs/UI.md) — по тому же паттерну: новая функция render*(), новый
-// пункт в #nav, новая ветка в route().
+// NB: раздел «Посещаемость» добавляется участником, реализующим задачу #3
+// (см. docs/tasks/ISSUE-3-meetings-attendance.md и docs/UI.md) — по тому же
+// паттерну: новая функция render*(), новый пункт в #nav, новая ветка в route().
 function route() {
   const hash = location.hash || '#/';
   if (hash === '#/' || hash === '') renderHome();
   else if (hash === '#/deputies') renderDeputies();
   else if (hash === '#/commissions') renderCommissions();
+  else if (hash === '#/membership') renderMembership();
   else renderHome();
 }
 

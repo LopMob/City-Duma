@@ -47,3 +47,26 @@ def delete_commission(commission_id: int, db: Session = Depends(get_db)):
     if commission is None:
         raise HTTPException(status_code=404, detail="Комиссия не найдена")
     crud.delete_commission(db, commission)
+
+
+@router.get("/{commission_id}/members", response_model=list[schemas.MembershipRead])
+def list_members(commission_id: int, db: Session = Depends(get_db)):
+    if crud.get_commission(db, commission_id) is None:
+        raise HTTPException(status_code=404, detail="Комиссия не найдена")
+    return crud.list_memberships(db, commission_id)
+
+
+@router.post(
+    "/{commission_id}/members", response_model=schemas.MembershipRead, status_code=201
+)
+def add_member(
+    commission_id: int, payload: schemas.MembershipCreate, db: Session = Depends(get_db)
+):
+    if crud.get_commission(db, commission_id) is None:
+        raise HTTPException(status_code=404, detail="Комиссия не найдена")
+    if crud.get_deputy(db, payload.deputy_id) is None:
+        raise HTTPException(status_code=404, detail="Депутат не найден")
+    try:
+        return crud.create_membership(db, commission_id, payload)
+    except crud.ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

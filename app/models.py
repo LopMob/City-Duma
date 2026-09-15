@@ -1,7 +1,15 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -18,10 +26,11 @@ class Deputy(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # NB: связи `memberships` и `attendances` (back_populates) добавляются
-    # в задачах #2 и #3 (см. docs/tasks/), когда появятся сами таблицы
-    # commission_memberships и attendances. Не добавляйте relationship()
-    # на несуществующую модель — приложение не запустится.
+    memberships: Mapped[list["CommissionMembership"]] = relationship(
+        back_populates="deputy", cascade="all, delete-orphan"
+    )
+
+    # NB: связь `attendances` добавляется в задаче #3 (см. docs/tasks/).
 
 
 class Commission(Base):
@@ -34,4 +43,34 @@ class Commission(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # NB: связи `memberships` и `meetings` добавляются в задачах #2 и #3.
+    memberships: Mapped[list["CommissionMembership"]] = relationship(
+        back_populates="commission", cascade="all, delete-orphan"
+    )
+
+    # NB: связь `meetings` добавляется в задаче #3.
+
+
+class CommissionMembership(Base):
+    """Членство депутата в комиссии. is_chair=True — председатель комиссии.
+
+    Правило: у комиссии не может быть больше одного председателя
+    одновременно (проверяется в app/crud.py).
+    """
+
+    __tablename__ = "commission_memberships"
+    __table_args__ = (
+        UniqueConstraint("commission_id", "deputy_id", name="uq_membership_pair"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    commission_id: Mapped[int] = mapped_column(
+        ForeignKey("commissions.id", ondelete="CASCADE"), nullable=False
+    )
+    deputy_id: Mapped[int] = mapped_column(
+        ForeignKey("deputies.id", ondelete="CASCADE"), nullable=False
+    )
+    is_chair: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    joined_at: Mapped[date] = mapped_column(Date, default=date.today, nullable=False)
+
+    commission: Mapped["Commission"] = relationship(back_populates="memberships")
+    deputy: Mapped["Deputy"] = relationship(back_populates="memberships")
