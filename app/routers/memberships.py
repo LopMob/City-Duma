@@ -1,15 +1,19 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.database import get_db
 
+DbSession = Annotated[Session, Depends(get_db)]
+
 router = APIRouter(prefix="/memberships", tags=["memberships"])
 
 
 @router.patch("/{membership_id}", response_model=schemas.MembershipRead)
 def update_membership(
-    membership_id: int, payload: schemas.MembershipUpdate, db: Session = Depends(get_db)
+    membership_id: int, payload: schemas.MembershipUpdate, db: DbSession
 ):
     membership = crud.get_membership(db, membership_id)
     if membership is None:
@@ -21,7 +25,7 @@ def update_membership(
 
 
 @router.delete("/{membership_id}", status_code=204)
-def delete_membership(membership_id: int, db: Session = Depends(get_db)):
+def delete_membership(membership_id: int, db: DbSession):
     membership = crud.get_membership(db, membership_id)
     if membership is None:
         raise HTTPException(status_code=404, detail="Членство в комиссии не найдено")
