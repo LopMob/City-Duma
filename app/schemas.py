@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,3 +53,25 @@ class CommissionRead(CommissionBase):
 
     id: int
     created_at: datetime
+
+
+# ---------- CommissionMembership ----------
+
+
+class MembershipCreate(BaseModel):
+    deputy_id: int
+    is_chair: bool = False
+
+
+class MembershipUpdate(BaseModel):
+    is_chair: bool
+
+
+class MembershipRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    commission_id: int
+    deputy_id: int
+    is_chair: bool
+    joined_at: date
