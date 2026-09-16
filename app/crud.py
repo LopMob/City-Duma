@@ -164,3 +164,103 @@ def update_membership(
 def delete_membership(db: Session, membership: models.CommissionMembership) -> None:
     db.delete(membership)
     db.commit()
+
+
+# ---------- Meeting ----------
+
+
+def list_meetings(
+    db: Session,
+    commission_id: int | None = None,
+    status: models.MeetingStatus | None = None,
+) -> list[models.Meeting]:
+    stmt = select(models.Meeting).order_by(models.Meeting.scheduled_at)
+    if commission_id is not None:
+        stmt = stmt.where(models.Meeting.commission_id == commission_id)
+    if status is not None:
+        stmt = stmt.where(models.Meeting.status == status)
+    return list(db.scalars(stmt))
+
+
+def get_meeting(db: Session, meeting_id: int) -> models.Meeting | None:
+    return db.get(models.Meeting, meeting_id)
+
+
+def create_meeting(db: Session, data: schemas.MeetingCreate) -> models.Meeting:
+    meeting = models.Meeting(**data.model_dump())
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+    return meeting
+
+
+def set_meeting_status(
+    db: Session, meeting: models.Meeting, new_status: models.MeetingStatus
+) -> models.Meeting:
+    if new_status == models.MeetingStatus.held:
+        _ensure_quorum(db, meeting)
+    meeting.status = new_status
+    db.commit()
+    db.refresh(meeting)
+    return meeting
+
+
+def _ensure_quorum(db: Session, meeting: models.Meeting) -> None:
+    """Заседание комиссии можно провести, только если присутствует
+    больше половины членов этой комиссии. На пленарные заседания
+    (commission_id is None) правило не распространяется."""
+    if meeting.commission_id is None:
+        return
+
+    total_members = len(list_memberships(db, meeting.commission_id))
+    if total_members == 0:
+        raise ConflictError(
+            "В комиссии нет ни одного члена — заседание провести нельзя"
+        )
+
+    present_count = len(
+        [
+            a
+            for a in db.scalars(
+                select(models.Attendance).where(
+                    models.Attendance.meeting_id == meeting.id,
+                    models.Attendance.status == models.AttendanceStatus.present,
+                )
+            )
+        ]
+    )
+    required = total_members // 2 + 1
+    if present_count < required:
+        raise ConflictError(
+            f"Нет кворума: присутствует {present_count} из {total_members} членов комиссии, "
+            f"требуется не менее {required}"
+        )
+
+
+# ---------- Attendance ----------
+
+
+def mark_attendance(
+    db: Session, meeting_id: int, data: schemas.AttendanceCreate
+) -> models.Attendance:
+    existing = db.scalar(
+        select(models.Attendance).where(
+            models.Attendance.meeting_id == meeting_id,
+            models.Attendance.deputy_id == data.deputy_id,
+        )
+    )
+    if existing is not None:
+        raise ConflictError(
+            "Посещаемость для этого депутата на этом заседании уже отмечена"
+        )
+
+    attendance = models.Attendance(meeting_id=meeting_id, **data.model_dump())
+    db.add(attendance)
+    db.commit()
+    db.refresh(attendance)
+    return attendance
+
+
+def list_attendance(db: Session, meeting_id: int) -> list[models.Attendance]:
+    stmt = select(models.Attendance).where(models.Attendance.meeting_id == meeting_id)
+    return list(db.scalars(stmt))
