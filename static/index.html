@@ -155,6 +155,12 @@
   button.small:hover { background: var(--paper-dim); }
   button.small.danger { border-color: var(--danger); color: var(--danger); }
   .tag.chair { border-color: var(--brass); color: #7A5F33; background: #F4ECDD; }
+  .tag.scheduled { border-color: var(--ink-soft); color: var(--ink-soft); }
+  .tag.held { border-color: var(--navy-soft); color: var(--navy-soft); background: #E9EEF3; }
+  .tag.cancelled { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+  .tag.present { border-color: #3E6B47; color: #2E4E35; background: #EAF2EB; }
+  .tag.absent { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+  .tag.excused { border-color: var(--brass); color: #7A5F33; background: #F4ECDD; }
   .field.check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 8px; }
   .field.check input { min-width: 0; }
 
@@ -178,7 +184,7 @@
       <a href="#/deputies" data-key="deputies">Депутаты</a>
       <a href="#/commissions" data-key="commissions">Комиссии</a>
       <a href="#/membership" data-key="membership">Состав комиссий</a>
-      <a class="disabled" data-key="attendance">Посещаемость <span class="soon">(задача #3)</span></a>
+      <a href="#/meetings" data-key="meetings">Заседания и посещаемость</a>
     </nav>
     <div class="sidebar-foot">API: <span id="api-status">…</span></div>
   </aside>
@@ -224,10 +230,11 @@ async function renderHome() {
   app.innerHTML = `<div class="page-head"><h1>Главная</h1><div class="sub">Сводка по реестру на текущий момент</div></div><div id="stats" class="register"></div>`;
   const stats = document.getElementById('stats');
   try {
-    const [deputies, commissions] = await Promise.all([api('/deputies'), api('/commissions')]);
+    const [deputies, commissions, meetings] = await Promise.all([api('/deputies'), api('/commissions'), api('/meetings')]);
     stats.innerHTML = `
       <a class="register-row" href="#/deputies"><span class="num">${deputies.length}</span><span class="label">Депутаты</span><span class="arrow">→</span></a>
       <a class="register-row" href="#/commissions"><span class="num">${commissions.length}</span><span class="label">Комиссии</span><span class="arrow">→</span></a>
+      <a class="register-row" href="#/meetings"><span class="num">${meetings.length}</span><span class="label">Заседания и посещаемость</span><span class="arrow">→</span></a>
     `;
   } catch (e) {
     stats.innerHTML = banner('Не удалось загрузить сводку: ' + e.message);
@@ -450,16 +457,217 @@ async function renderMembership() {
   load();
 }
 
+// ---------- Заседания и посещаемость ----------
+async function renderMeetings() {
+  setActiveNav('meetings');
+  app.innerHTML = `
+    <div class="page-head"><h1>Заседания и посещаемость</h1><div class="sub">Заседания комиссий и пленарные заседания думы</div></div>
+    <div id="msg"></div>
+    <div class="field-row">
+      <div class="field"><label>Комиссия</label><select id="filter-commission"><option value="">Все</option></select></div>
+      <div class="field"><label>Статус</label>
+        <select id="filter-status">
+          <option value="">Все</option>
+          <option value="scheduled">Запланировано</option>
+          <option value="held">Проведено</option>
+          <option value="cancelled">Отменено</option>
+        </select>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>№</th><th>Название</th><th>Комиссия</th><th>Дата</th><th>Статус</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6" class="empty">Загрузка…</td></tr></tbody>
+    </table>
+    <div class="panel">
+      <h3>Создать заседание</h3>
+      <form id="add-form">
+        <div class="field-row">
+          <div class="field"><label>Комиссия</label><select name="commission_id" id="commission-select"><option value="">— пленарное —</option></select></div>
+          <div class="field"><label>Название *</label><input name="title" required minlength="2"></div>
+          <div class="field"><label>Дата и время *</label><input type="datetime-local" name="scheduled_at" required></div>
+          <div class="field"><label>Повестка</label><input name="agenda"></div>
+          <button type="submit">Создать</button>
+        </div>
+      </form>
+    </div>
+    <div class="panel" id="attendance-panel" style="display:none;">
+      <h3>Посещаемость: <span id="attendance-meeting-title"></span></h3>
+      <table>
+        <thead><tr><th>№</th><th>Депутат</th><th>Статус</th><th>Комментарий</th><th></th></tr></thead>
+        <tbody id="attendance-rows"></tbody>
+      </table>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field"><label>Депутат *</label><select id="attendance-deputy"></select></div>
+        <div class="field"><label>Статус *</label>
+          <select id="attendance-status">
+            <option value="present">Присутствовал</option>
+            <option value="absent">Отсутствовал</option>
+            <option value="excused">Уважительная причина</option>
+          </select>
+        </div>
+        <div class="field"><label>Комментарий</label><input id="attendance-note"></div>
+        <button id="mark-attendance-btn" type="button">Отметить</button>
+      </div>
+      <div class="field-row" style="margin-top:14px;">
+        <button class="small" id="status-held" type="button">Провести (проверка кворума)</button>
+        <button class="small" id="status-cancelled" type="button">Отменить</button>
+        <button class="small" id="status-scheduled" type="button">Вернуть в «запланировано»</button>
+      </div>
+    </div>
+  `;
+  const msg = document.getElementById('msg');
+  const rows = document.getElementById('rows');
+  const filterCommission = document.getElementById('filter-commission');
+  const filterStatus = document.getElementById('filter-status');
+  const commissionSelect = document.getElementById('commission-select');
+  const attendancePanel = document.getElementById('attendance-panel');
+  const attendanceTitle = document.getElementById('attendance-meeting-title');
+  const attendanceRows = document.getElementById('attendance-rows');
+  const attendanceDeputy = document.getElementById('attendance-deputy');
+  let commissionsById = {};
+  let deputiesById = {};
+  let selectedMeetingId = null;
+  let editingAttendanceId = null;
+
+  try {
+    const [commissions, deputies] = await Promise.all([api('/commissions'), api('/deputies')]);
+    const options = commissions.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    filterCommission.innerHTML += options;
+    commissionSelect.innerHTML += options;
+    attendanceDeputy.innerHTML = deputies.map(d => `<option value="${d.id}">${d.full_name}</option>`).join('');
+    commissions.forEach(c => { commissionsById[c.id] = c.name; });
+    deputies.forEach(d => { deputiesById[d.id] = d.full_name; });
+  } catch (e) {
+    rows.innerHTML = `<tr><td colspan="6">${banner('Не удалось загрузить справочники: ' + e.message)}</td></tr>`;
+    return;
+  }
+
+  async function loadMeetings() {
+    const params = new URLSearchParams();
+    if (filterCommission.value) params.set('commission_id', filterCommission.value);
+    if (filterStatus.value) params.set('status', filterStatus.value);
+    try {
+      const list = await api('/meetings' + (params.toString() ? '?' + params : ''));
+      rows.innerHTML = list.length ? list.map(m => `
+        <tr>
+          <td>${m.id}</td>
+          <td>${m.title}</td>
+          <td class="muted">${m.commission_id ? (commissionsById[m.commission_id] || '—') : 'пленарное'}</td>
+          <td class="muted">${new Date(m.scheduled_at).toLocaleString('ru-RU')}</td>
+          <td><span class="tag ${m.status}">${
+            m.status === 'scheduled' ? 'запланировано' : m.status === 'held' ? 'проведено' : 'отменено'
+          }</span></td>
+          <td><button class="small" data-select="${m.id}" data-title="${m.title}">Посещаемость</button></td>
+        </tr>
+      `).join('') : `<tr><td colspan="6" class="empty">Пока нет ни одного заседания — создайте первое ниже.</td></tr>`;
+    } catch (e) {
+      rows.innerHTML = `<tr><td colspan="6">${banner('Не удалось загрузить список: ' + e.message)}</td></tr>`;
+    }
+  }
+
+    function resetAttendanceForm() {
+    editingAttendanceId = null;
+    attendanceDeputy.disabled = false;
+    document.getElementById('attendance-status').value = 'present';
+    document.getElementById('attendance-note').value = '';
+    document.getElementById('mark-attendance-btn').textContent = 'Отметить';
+  }
+
+  async function loadAttendance() {
+    if (!selectedMeetingId) return;
+    try {
+      const list = await api(`/meetings/${selectedMeetingId}/attendance`);
+      attendanceRows.innerHTML = list.length ? list.map((a, idx) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${deputiesById[a.deputy_id] || ('id ' + a.deputy_id)}</td>
+          <td><span class="tag ${a.status}">${
+            a.status === 'present' ? 'присутствовал' : a.status === 'absent' ? 'отсутствовал' : 'уваж. причина'
+          }</span></td>
+          <td class="muted">${a.note || '—'}</td>
+          <td><button class="small" data-edit="${a.id}" data-status="${a.status}" data-note="${a.note || ''}">Изменить</button></td>
+        </tr>
+      `).join('') : `<tr><td colspan="5" class="empty">Пока никто не отмечен.</td></tr>`;
+    } catch (e) {
+      attendanceRows.innerHTML = `<tr><td colspan="5">${banner('Не удалось загрузить посещаемость: ' + e.message)}</td></tr>`;
+    }
+  }
+
+  rows.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-select]');
+    if (!btn) return;
+    selectedMeetingId = btn.dataset.select;
+    attendanceTitle.textContent = `«${btn.dataset.title}» (№${selectedMeetingId})`;
+    attendancePanel.style.display = '';
+    msg.innerHTML = '';
+    resetAttendanceForm();
+    loadAttendance();
+  });
+
+  attendanceRows.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-edit]');
+    if (!btn) return;
+    editingAttendanceId = btn.dataset.edit;
+    attendanceDeputy.disabled = true;
+    document.getElementById('attendance-status').value = btn.dataset.status;
+    document.getElementById('attendance-note').value = btn.dataset.note;
+    document.getElementById('mark-attendance-btn').textContent = 'Сохранить изменения';
+    msg.innerHTML = '';
+  });
+
+  document.getElementById('mark-attendance-btn').addEventListener('click', async () => {
+    if (!selectedMeetingId) return;
+    const status = document.getElementById('attendance-status').value;
+    const note = document.getElementById('attendance-note').value;
+    try {
+      if (editingAttendanceId) {
+        await api(`/meetings/${selectedMeetingId}/attendance/${editingAttendanceId}`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ status, note: note || null }),
+        });
+      } else {
+        const payload = { deputy_id: Number(attendanceDeputy.value), status };
+        if (note) payload.note = note;
+        await api(`/meetings/${selectedMeetingId}/attendance`, {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload),
+        });
+      }
+      msg.innerHTML = '';
+      resetAttendanceForm();
+      loadAttendance();
+    } catch (e) {
+      msg.innerHTML = banner('Не удалось сохранить посещаемость: ' + e.message);
+    }
+  });
+
+  async function setStatus(newStatus) {
+    if (!selectedMeetingId) return;
+    try {
+      await api(`/meetings/${selectedMeetingId}/status`, {
+        method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ status: newStatus }),
+      });
+      msg.innerHTML = banner('Статус обновлён', true);
+      loadMeetings();
+    } catch (e) {
+      msg.innerHTML = banner(e.message);
+    }
+  }
+
+  document.getElementById('status-held').addEventListener('click', () => setStatus('held'));
+  document.getElementById('status-cancelled').addEventListener('click', () => setStatus('cancelled'));
+  document.getElementById('status-scheduled').addEventListener('click', () => setStatus('scheduled'));
+
+  loadMeetings();
+}
+
 // ---------- Router ----------
-// NB: раздел «Посещаемость» добавляется участником, реализующим задачу #3
-// (см. docs/tasks/ISSUE-3-meetings-attendance.md и docs/UI.md) — по тому же
-// паттерну: новая функция render*(), новый пункт в #nav, новая ветка в route().
 function route() {
   const hash = location.hash || '#/';
   if (hash === '#/' || hash === '') renderHome();
   else if (hash === '#/deputies') renderDeputies();
   else if (hash === '#/commissions') renderCommissions();
   else if (hash === '#/membership') renderMembership();
+  else if (hash === '#/meetings') renderMeetings();
   else renderHome();
 }
 

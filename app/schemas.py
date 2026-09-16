@@ -120,3 +120,8 @@ class AttendanceRead(BaseModel):
     deputy_id: int
     status: AttendanceStatus
     note: str | None
+
+
+class AttendanceUpdate(BaseModel):
+    status: AttendanceStatus | None = None
+    note: str | None = None
