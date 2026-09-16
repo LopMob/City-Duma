@@ -264,3 +264,17 @@ def mark_attendance(
 def list_attendance(db: Session, meeting_id: int) -> list[models.Attendance]:
     stmt = select(models.Attendance).where(models.Attendance.meeting_id == meeting_id)
     return list(db.scalars(stmt))
+
+
+def get_attendance(db: Session, attendance_id: int) -> models.Attendance | None:
+    return db.get(models.Attendance, attendance_id)
+
+
+def update_attendance(
+    db: Session, attendance: models.Attendance, data: schemas.AttendanceUpdate
+) -> models.Attendance:
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(attendance, field, value)
+    db.commit()
+    db.refresh(attendance)
+    return attendance
