@@ -1,9 +1,11 @@
+import enum
 from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Enum,
     ForeignKey,
     String,
     Text,
@@ -12,6 +14,18 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+
+class MeetingStatus(enum.StrEnum):
+    scheduled = "scheduled"
+    held = "held"
+    cancelled = "cancelled"
+
+
+class AttendanceStatus(enum.StrEnum):
+    present = "present"
+    absent = "absent"
+    excused = "excused"
 
 
 class Deputy(Base):
@@ -29,8 +43,9 @@ class Deputy(Base):
     memberships: Mapped[list["CommissionMembership"]] = relationship(
         back_populates="deputy", cascade="all, delete-orphan"
     )
-
-    # NB: связь `attendances` добавляется в задаче #3 (см. docs/tasks/).
+    attendances: Mapped[list["Attendance"]] = relationship(
+        back_populates="deputy", cascade="all, delete-orphan"
+    )
 
 
 class Commission(Base):
@@ -46,8 +61,9 @@ class Commission(Base):
     memberships: Mapped[list["CommissionMembership"]] = relationship(
         back_populates="commission", cascade="all, delete-orphan"
     )
-
-    # NB: связь `meetings` добавляется в задаче #3.
+    meetings: Mapped[list["Meeting"]] = relationship(
+        back_populates="commission", cascade="all, delete-orphan"
+    )
 
 
 class CommissionMembership(Base):
@@ -74,3 +90,49 @@ class CommissionMembership(Base):
 
     commission: Mapped["Commission"] = relationship(back_populates="memberships")
     deputy: Mapped["Deputy"] = relationship(back_populates="memberships")
+
+
+class Meeting(Base):
+    """Заседание комиссии (или пленарное заседание думы, commission_id=NULL)."""
+
+    __tablename__ = "meetings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    commission_id: Mapped[int | None] = mapped_column(
+        ForeignKey("commissions.id", ondelete="CASCADE"), nullable=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[MeetingStatus] = mapped_column(
+        Enum(MeetingStatus), default=MeetingStatus.scheduled, nullable=False
+    )
+    agenda: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    commission: Mapped["Commission | None"] = relationship(back_populates="meetings")
+    attendances: Mapped[list["Attendance"]] = relationship(
+        back_populates="meeting", cascade="all, delete-orphan"
+    )
+
+
+class Attendance(Base):
+    """Отметка посещаемости депутата на заседании."""
+
+    __tablename__ = "attendances"
+    __table_args__ = (
+        UniqueConstraint("meeting_id", "deputy_id", name="uq_attendance_pair"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    meeting_id: Mapped[int] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE")
+    )
+    deputy_id: Mapped[int] = mapped_column(
+        ForeignKey("deputies.id", ondelete="CASCADE")
+    )
+    status: Mapped[AttendanceStatus] = mapped_column(
+        Enum(AttendanceStatus), nullable=False
+    )
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    meeting: Mapped["Meeting"] = relationship(back_populates="attendances")
+    deputy: Mapped["Deputy"] = relationship(back_populates="attendances")
