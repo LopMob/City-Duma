@@ -657,6 +657,25 @@ async function renderMeetings() {
   document.getElementById('status-cancelled').addEventListener('click', () => setStatus('cancelled'));
   document.getElementById('status-scheduled').addEventListener('click', () => setStatus('scheduled'));
 
+  filterCommission.addEventListener('change', loadMeetings);
+  filterStatus.addEventListener('change', loadMeetings);
+
+  document.getElementById('add-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    const payload = { title: fd.get('title'), scheduled_at: fd.get('scheduled_at') };
+    if (fd.get('commission_id')) payload.commission_id = Number(fd.get('commission_id'));
+    if (fd.get('agenda')) payload.agenda = fd.get('agenda');
+    try {
+      await api('/meetings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      msg.innerHTML = '';
+      ev.target.reset();
+      loadMeetings();
+    } catch (e) {
+      msg.innerHTML = banner('Не удалось создать заседание: ' + e.message);
+    }
+  });
+
   loadMeetings();
 }
 
