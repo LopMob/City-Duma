@@ -1,10 +1,8 @@
-# Схема данных (целевая, все ЛР1)
+# Схема данных
 
-Ниже — полная целевая модель проекта. На старте в `main` реализована
-только часть (см. `docs/TASKS.md`), остальное добавляется участниками
-команды в своих ветках.
+Модель данных проекта: пять сущностей и связи между ними.
 
-```
+```mermaid
 erDiagram
     DEPUTY ||--o{ COMMISSION_MEMBERSHIP : "состоит в"
     COMMISSION ||--o{ COMMISSION_MEMBERSHIP : "включает"
@@ -65,9 +63,9 @@ erDiagram
 
 - `Meeting`, `Attendance` — задача #3 (см. `docs/tasks/ISSUE-3-meetings-attendance.md`).
 
-## Ключевые ограничения (целевые, для справки)
+## Ключевые ограничения
 
-- `COMMISSION.name` — уникально (уже реализовано).
+- `COMMISSION.name` — уникально.
 - `COMMISSION_MEMBERSHIP` — уникальная пара `(commission_id, deputy_id)`.
 - `ATTENDANCE` — уникальная пара `(meeting_id, deputy_id)`.
 - Председатель (`is_chair = true`) — не более одного на комиссию.
