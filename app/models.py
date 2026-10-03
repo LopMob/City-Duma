@@ -37,6 +37,7 @@ class Deputy(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     party: Mapped[str | None] = mapped_column(String(120), nullable=True)
     election_district: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
