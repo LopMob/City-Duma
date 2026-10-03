@@ -19,7 +19,13 @@ def get_deputy(db: Session, deputy_id: int) -> models.Deputy | None:
     return db.get(models.Deputy, deputy_id)
 
 
+def get_deputy_by_email(db: Session, email: str) -> models.Deputy | None:
+    return db.scalar(select(models.Deputy).where(models.Deputy.email == email))
+
+
 def create_deputy(db: Session, data: schemas.DeputyCreate) -> models.Deputy:
+    if data.email is not None and get_deputy_by_email(db, data.email) is not None:
+        raise ConflictError(f"Депутат с email '{data.email}' уже существует")
     deputy = models.Deputy(**data.model_dump())
     db.add(deputy)
     db.commit()
@@ -30,7 +36,13 @@ def create_deputy(db: Session, data: schemas.DeputyCreate) -> models.Deputy:
 def update_deputy(
     db: Session, deputy: models.Deputy, data: schemas.DeputyUpdate
 ) -> models.Deputy:
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    new_email = updates.get("email")
+    if new_email and new_email != deputy.email:
+        existing = get_deputy_by_email(db, new_email)
+        if existing is not None and existing.id != deputy.id:
+            raise ConflictError(f"Депутат с email '{new_email}' уже существует")
+    for field, value in updates.items():
         setattr(deputy, field, value)
     db.commit()
     db.refresh(deputy)

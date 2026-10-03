@@ -7,10 +7,16 @@ from app.models import AttendanceStatus, MeetingStatus
 # ---------- Deputy ----------
 
 
+# Простая проверка формата адреса (без внешней зависимости email-validator) —
+# достаточно для отсечения явного мусора, не претендует на RFC 5322.
+EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+
 class DeputyBase(BaseModel):
     full_name: str = Field(min_length=2, max_length=255)
     party: str | None = Field(default=None, max_length=120)
     election_district: str | None = Field(default=None, max_length=120)
+    email: str | None = Field(default=None, max_length=255, pattern=EMAIL_PATTERN)
     is_active: bool = True
 
 
@@ -22,6 +28,7 @@ class DeputyUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     party: str | None = Field(default=None, max_length=120)
     election_district: str | None = Field(default=None, max_length=120)
+    email: str | None = Field(default=None, max_length=255, pattern=EMAIL_PATTERN)
     is_active: bool | None = None
 
 
