@@ -18,7 +18,10 @@ def list_deputies(db: DbSession):
 
 @router.post("", response_model=schemas.DeputyRead, status_code=201)
 def create_deputy(payload: schemas.DeputyCreate, db: DbSession):
-    return crud.create_deputy(db, payload)
+    try:
+        return crud.create_deputy(db, payload)
+    except crud.ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{deputy_id}", response_model=schemas.DeputyRead)
@@ -34,7 +37,10 @@ def update_deputy(deputy_id: int, payload: schemas.DeputyUpdate, db: DbSession):
     deputy = crud.get_deputy(db, deputy_id)
     if deputy is None:
         raise HTTPException(status_code=404, detail="Депутат не найден")
-    return crud.update_deputy(db, deputy, payload)
+    try:
+        return crud.update_deputy(db, deputy, payload)
+    except crud.ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.delete("/{deputy_id}", status_code=204)

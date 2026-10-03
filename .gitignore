@@ -7,3 +7,9 @@ venv/
 backups/
 .pytest_cache/
 .ruff_cache/
+
+*.db
+*.db-journal
+*.db.before_restore
+.coverage
+coverage.xml

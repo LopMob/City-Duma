@@ -15,6 +15,7 @@ erDiagram
         string full_name
         string party
         string election_district
+        string email UK "nullable — добавлено в ЛР3, миграция 0004"
         bool is_active
         datetime created_at
     }
@@ -69,4 +70,14 @@ erDiagram
 - `COMMISSION_MEMBERSHIP` — уникальная пара `(commission_id, deputy_id)`.
 - `ATTENDANCE` — уникальная пара `(meeting_id, deputy_id)`.
 - Председатель (`is_chair = true`) — не более одного на комиссию.
+- `DEPUTY.email` — уникален, если указан (`NULL` разрешён многократно).
 - Внешние ключи — `ON DELETE CASCADE`.
+
+## История миграций схемы
+
+| Миграция | Что меняет |
+|---|---|
+| `0001` | `deputies`, `commissions` |
+| `0002` | `commission_memberships` + уникальная пара |
+| `0003` | `meetings`, `attendances` |
+| `0004` | `deputies.email` (контактный email, ЛР3 — п.10 задания) |
