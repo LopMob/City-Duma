@@ -1,2 +1,24 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "unit: isolated unit tests of core logic (no HTTP layer)",
+    "integration: tests exercising the API + a real database engine",
+]
+addopts = "--cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=40"
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "venv", "alembic"]
+# B101 (assert) is fine in our own code outside tests; nothing else is
+# excluded. Any future skip must be justified in the PR description —
+# see CONTRIBUTING.md "Запрет на снижение порогов".
+skips = []
