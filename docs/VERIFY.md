@@ -78,7 +78,7 @@ addopts = "--cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under
 - **pytest** запускает все тесты из `tests/` — юнит (`tests/unit/`,
   логика напрямую через `app/crud.py`, без HTTP-слоя) и интеграционные
   (через `TestClient` — HTTP + БД, и `tests/integration/test_migrations.py`
-  — реальный `alembic` CLI против временных файлов SQLite).
+  — реальный `alembic` CLI против одноразовых баз PostgreSQL).
 - **`--cov=app`** — измеряет покрытие кода пакета `app/` тестами.
 - **`--cov-report=term-missing`** — печатает в консоли не только процент,
   но и номера непокрытых строк (быстро видно, что именно не протестировано).
@@ -89,10 +89,15 @@ addopts = "--cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under
   40% от функционала, описанного в ТЗ»). Снижать это число, чтобы
   обойти упавшую проверку, запрещено `CONTRIBUTING.md` п.3.
 
-Тестовая изоляция (ЛР3, п.6): `tests/conftest.py` создаёт БД **в памяти**
-(`sqlite:///:memory:`, `StaticPool`) отдельно для `client` (HTTP-уровень)
-и `db_session` (чистый SQLAlchemy `Session`) — тесты никогда не трогают
-`duma.db` разработчика и не зависят друг от друга по данным.
+Тестовая изоляция (ЛР3, п.6): тесты идут в настоящий PostgreSQL, но в
+**отдельную базу** `<имя>_test` (имя берётся из `DATABASE_URL`, база
+создаётся автоматически; имя обязано оканчиваться на `_test`, иначе тесты
+не стартуют — рабочая БД защищена). Схема строится миграциями Alembic
+(`upgrade head`), а перед каждым тестом таблицы очищаются
+(`TRUNCATE … RESTART IDENTITY`) — тесты не зависят друг от друга по данным.
+Фикстуры `client` (HTTP-уровень) и `db_session` (чистая сессия SQLAlchemy)
+живут в `tests/conftest.py`. Если PostgreSQL недоступен, тесты не
+пропускаются, а падают с понятным сообщением.
 
 Назначение: убедиться, что код не просто «выглядит правильно»
 (`quality`/`sast`), а действительно ведёт себя так, как требует ТЗ, и
@@ -105,9 +110,10 @@ addopts = "--cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under
 8–12 задания и будут проверены на защите отдельно:
 
 ```
+make db-init                       # создать рабочую и тестовую БД (если их нет)
 make migrate                       # накатить все миграции на текущую БД
-make backup                        # создать резервную копию (scripts/db_backup.py)
-make restore FILE=backups/duma_<ts>.sql   # восстановить из копии (scripts/db_restore.py)
+make backup                        # резервная копия (pg_dump --clean --if-exists)
+make restore FILE=backups/duma_<ts>.sql   # восстановить из копии (psql, одна транзакция)
 ```
 
 - Автоматические проверки миграций (чистая БД / БД с данными / откат-накат)

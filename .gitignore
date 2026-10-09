@@ -3,13 +3,8 @@ __pycache__/
 .venv/
 venv/
 .env
-*.db
 backups/
 .pytest_cache/
 .ruff_cache/
-
-*.db
-*.db-journal
-*.db.before_restore
 .coverage
 coverage.xml
