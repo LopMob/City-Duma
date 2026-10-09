@@ -14,8 +14,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
+
+# Скрипт запускается как `python scripts/demo_data.py`, поэтому в sys.path попадает
+# папка scripts/, а не корень проекта — добавляем корень, чтобы работал `import app`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import get_settings
 
