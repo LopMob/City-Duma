@@ -186,7 +186,9 @@ def list_meetings(
     commission_id: int | None = None,
     status: models.MeetingStatus | None = None,
 ) -> list[models.Meeting]:
-    stmt = select(models.Meeting).order_by(models.Meeting.scheduled_at)
+    stmt = select(models.Meeting).order_by(
+        models.Meeting.scheduled_at, models.Meeting.id
+    )
     if commission_id is not None:
         stmt = stmt.where(models.Meeting.commission_id == commission_id)
     if status is not None:
@@ -274,7 +276,11 @@ def mark_attendance(
 
 
 def list_attendance(db: Session, meeting_id: int) -> list[models.Attendance]:
-    stmt = select(models.Attendance).where(models.Attendance.meeting_id == meeting_id)
+    stmt = (
+        select(models.Attendance)
+        .where(models.Attendance.meeting_id == meeting_id)
+        .order_by(models.Attendance.id)
+    )
     return list(db.scalars(stmt))
 
 

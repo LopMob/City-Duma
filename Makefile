@@ -1,9 +1,17 @@
-.PHONY: setup run test quality sast migrate verify backup restore
+.PHONY: setup db-init run test quality sast migrate verify backup restore
 
+# Первоначальная настройка (Linux): venv, зависимости, .env. Дальше:
+#   1) в .env указать пароль PostgreSQL в DATABASE_URL;
+#   2) make db-init  — создать рабочую и тестовую БД;
+#   3) make migrate  — создать таблицы.
 setup:
 	python3 -m venv venv
 	./venv/bin/pip install -r requirements.txt
 	cp -n .env.example .env || true
+
+# Создать (если нет) рабочую БД и тестовую <имя>_test в PostgreSQL.
+db-init:
+	python scripts/db_init.py
 
 run:
 	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -12,8 +20,8 @@ test:
 	pytest -q
 
 quality:
-	ruff check app tests
-	black --check app tests
+	ruff check app tests scripts
+	black --check app tests scripts
 
 # SAST (ЛР3, п.7): статический анализ кода на безопасность. -q тише, но
 # ненулевой exit-код при находках всё равно проваливает make verify.
