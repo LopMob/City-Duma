@@ -7,8 +7,8 @@
 ## Технологии
 
 - Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic
-- SQLite (по умолчанию, для ЛР1)
-- pytest, ruff, black
+- PostgreSQL (единственная поддерживаемая СУБД; драйвер psycopg2)
+- pytest + pytest-cov, ruff, black, bandit
 
 ## Разделение работы по команде
 
@@ -47,11 +47,18 @@
 
 ## Быстрый старт
 
+Нужен установленный и запущенный PostgreSQL (локально или на сервере).
+
 ```
-make setup      # venv + зависимости + .env из .env.example
+make setup      # venv + зависимости + .env из .env.example (Linux)
+                # затем в .env указать пароль PostgreSQL в DATABASE_URL
+make db-init    # создать рабочую БД и тестовую <имя>_test
 make migrate    # применить миграции (создать таблицы)
 make run        # запустить сервер на http://localhost:8000
 ```
+
+В Windows `make setup` заменяется созданием venv в IDE и
+`pip install -r requirements.txt`; остальные команды те же.
 
 Проверка: `curl http://localhost:8000/health`.
 Интерактивная документация: `http://localhost:8000/docs`.
@@ -61,10 +68,14 @@ make run        # запустить сервер на http://localhost:8000
 ```
 make setup     # первоначальная настройка
 make run       # локальный запуск
-make test      # автоматические тесты
-make quality   # форматирование и статический анализ
+make db-init   # создать рабочую и тестовую БД PostgreSQL
+make test      # автоматические тесты (нужен запущенный PostgreSQL)
+make quality   # форматирование и линтер (ruff + black)
+make sast      # статический анализ безопасности (bandit)
 make migrate   # применение миграций
-make verify    # quality + test, обязателен перед PR
+make backup    # резервная копия БД (pg_dump)
+make restore FILE=backups/duma_<ts>.sql   # восстановление (psql)
+make verify    # quality + sast + test, обязателен перед PR
 ```
 
 ## Git-процесс
@@ -77,7 +88,8 @@ make verify    # quality + test, обязателен перед PR
 ```
 app/            — исходный код приложения (FastAPI, модели, схемы, роутеры)
 alembic/        — миграции схемы БД
-tests/          — автоматические тесты
+tests/          — автоматические тесты (unit, API, интеграционные)
+scripts/        — резервное копирование/восстановление БД, init, демо-данные
 docs/           — ТЗ, модель данных, разделение задач по команде
 Makefile        — единый командный интерфейс проекта
 ```
