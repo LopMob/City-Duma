@@ -8,3 +8,5 @@ backups/
 .ruff_cache/
 .coverage
 coverage.xml
+.env.compose
+.env.check
