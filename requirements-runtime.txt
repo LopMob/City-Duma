@@ -1,0 +1,9 @@
+# Зависимости, нужные приложению в контейнере (без pytest, ruff, black, bandit).
+# Версии обязаны совпадать с requirements.txt — это проверяет make container-check.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+sqlalchemy==2.0.53
+alembic==1.20.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+psycopg2-binary==2.9.13
