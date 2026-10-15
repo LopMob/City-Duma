@@ -1,0 +1,41 @@
+# Всё, что не должно попадать в образ (секреты, мусор, лишний вес).
+.git
+.gitattributes
+.gitignore
+.idea
+.vscode
+
+# Секреты и локальные настройки — никогда в образ
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+
+# Окружения и кеши
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.coverage
+coverage.xml
+
+# Резервные копии и локальные БД
+backups
+*.sql
+*.db
+
+# Не нужно для работы приложения
+tests
+docs
+deploy
+scripts
+README.md
+CONTRIBUTING.md
+Makefile
+Dockerfile
+.dockerignore
+compose.yaml
