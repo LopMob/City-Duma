@@ -1,0 +1,1645 @@
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..ec35aaf
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,41 @@
++# Всё, что не должно попадать в образ (секреты, мусор, лишний вес).
++.git
++.gitattributes
++.gitignore
++.idea
++.vscode
++
++# Секреты и локальные настройки — никогда в образ
++.env
++.env.*
++!.env.example
++*.pem
++*.key
++id_rsa*
++
++# Окружения и кеши
++.venv
++venv
++__pycache__
++*.pyc
++.pytest_cache
++.ruff_cache
++.coverage
++coverage.xml
++
++# Резервные копии и локальные БД
++backups
++*.sql
++*.db
++
++# Не нужно для работы приложения
++tests
++docs
++deploy
++scripts
++README.md
++CONTRIBUTING.md
++Makefile
++Dockerfile
++.dockerignore
++compose.yaml
+diff --git a/.env.compose.example b/.env.compose.example
+new file mode 100644
+index 0000000..caf532c
+--- /dev/null
++++ b/.env.compose.example
+@@ -0,0 +1,9 @@
++# Настройки контейнерного окружения (ЛР4). Файл .env.compose в git не попадает.
++# Создаётся командой make container-init (пароль генерируется случайный).
++POSTGRES_USER=duma
++POSTGRES_PASSWORD=замените_на_свой_пароль
++POSTGRES_DB=city_duma
++# Порт и адрес публикации приложения на хосте
++APP_PORT=8000
++APP_BIND=127.0.0.1
++ENVIRONMENT=container
+diff --git a/.gitattributes b/.gitattributes
+index eb8c0cf..b65408d 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -1 +1,6 @@
+ ﻿*.sh text eol=lf
++
++# ЛР4: Docker читает эти файлы внутри Linux-контейнеров и в CI — всегда LF
++Dockerfile text eol=lf
++.dockerignore text eol=lf
++compose.yaml text eol=lf
+diff --git a/.gitignore b/.gitignore
+index 1d21b28..4ac0362 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,3 +8,5 @@ backups/
+ .ruff_cache/
+ .coverage
+ coverage.xml
++.env.compose
++.env.check
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index f2d7dcb..46bc874 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -22,8 +22,14 @@ make test      # pytest + покрытие (нужен запущенный Post
+ make verify    # quality + sast + test одной командой — обязательна перед push/PR
+ make backup    # резервная копия текущей БД (scripts/db_backup.py)
+ make restore FILE=backups/duma_<ts>.sql   # восстановление из копии
++make container-check   # ЛР4: контейнерное окружение (обязательно при любых правках Docker-файлов)
+ ```
+ 
++**Контейнерное окружение (ЛР4).** Любое изменение `Dockerfile`, `.dockerignore`,
++`compose.yaml`, `requirements-runtime.txt` или контейнерных скриптов допускается
++только после успешного `make container-check` (быстрая проверка файлов без
++Docker — `make container-lint`). Подробности — `docs/CONTAINER.md`.
++
+ Назначение каждой команды внутри `make verify` подробно объяснено в
+ `docs/VERIFY.md` (готовый ответ на вопрос «объясните, что делает каждая
+ команда» на защите).
+@@ -38,7 +44,15 @@ make restore FILE=backups/duma_<ts>.sql   # восстановление из к
+   и упоминания в PR, почему именно здесь это безопасно. Любое такое
+   исключение — это самостоятельное решение автора, за которое он отвечает
+   на защите; «чтобы прошла проверка» не является обоснованием.
+-- Коммитить `.env`, реальные секреты, резервные копии (`backups/`).
++- Коммитить `.env`, `.env.compose`, реальные секреты, резервные копии (`backups/`).
++- В контейнерном окружении (ЛР4) запрещено — и это проверяет `make container-check`:
++  1. образы с тегом `latest` или без тега (версии закрепляются точно);
++  2. запуск процессов от root (в `Dockerfile` обязателен непривилегированный `USER`);
++  3. секреты в образе (`ENV`/`ARG` с паролями, `COPY .env`, ключи) и пароли
++     литералами в `compose.yaml` — только `${ПЕРЕМЕННЫЕ}` из `.env.compose`;
++  4. отключение healthcheck (`HEALTHCHECK NONE`, `healthcheck: disable`);
++  5. публикация лишних портов: порт БД не публикуется никогда, наружу
++     открыт только HTTP-порт приложения.
+ - Прямой push в `main`, минуя ветку и PR.
+ - Мержить PR с конфликт-маркерами (`<<<<<<<`) в коде.
+ - Любое из вышеперечисленного, даже временно «на один коммит» — правило
+@@ -52,7 +66,8 @@ make restore FILE=backups/duma_<ts>.sql   # восстановление из к
+ 3. Реализовано минимум одно содержательное бизнес-правило задачи (если
+    оно есть в критериях приёмки).
+ 4. Обновлён `docs/DATA_MODEL.md`, если менялась схема данных.
+-5. Автор способен объяснить каждую строчку своего diff — на защите
++5. Если менялось контейнерное окружение — `make container-check` проходит.
++6. Автор способен объяснить каждую строчку своего diff — на защите
+    спрашивают именно про это.
+ 
+ ## 5. Ветвление и версии
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..060d1ae
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,44 @@
++# ЛР4: образ приложения «Городская Дума».
++#
++# Воспроизводимость: базовый образ закреплён точной версией (не latest),
++# зависимости ставятся из requirements-runtime.txt с точными версиями (==).
++# Безопасность: процесс работает от непривилегированного пользователя,
++# в образе нет секретов — настройки приходят переменными окружения при запуске.
++FROM python:3.11.13-slim-bookworm
++
++ENV PYTHONDONTWRITEBYTECODE=1 \
++    PYTHONUNBUFFERED=1 \
++    PIP_NO_CACHE_DIR=1 \
++    PIP_DISABLE_PIP_VERSION_CHECK=1
++
++# Системный пользователь без пароля, без домашней папки и без оболочки.
++# Числовой UID закреплён, чтобы проверка «не root» не зависела от имени.
++RUN groupadd --system --gid 10001 app \
++    && useradd --system --uid 10001 --gid app --no-create-home \
++        --shell /usr/sbin/nologin app
++
++WORKDIR /app
++
++# Сначала зависимости: слой кешируется и пересобирается только при смене версий.
++COPY requirements-runtime.txt .
++RUN pip install -r requirements-runtime.txt
++
++# Код принадлежит root и недоступен для записи пользователю app:
++# скомпрометированный процесс не сможет подменить код приложения.
++COPY alembic.ini ./
++COPY alembic ./alembic
++COPY app ./app
++COPY static ./static
++
++USER 10001:10001
++
++EXPOSE 8000
++
++HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
++    CMD ["python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"]
++
++# Корректное завершение: exec-форма (uvicorn — PID 1 и сам получает сигнал),
++# SIGTERM — штатный сигнал остановки, uvicorn дожидается текущих запросов
++# и выходит с кодом 0. Настройки (БД, порт) — только из переменных окружения.
++STOPSIGNAL SIGTERM
++CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "15"]
+diff --git a/Makefile b/Makefile
+index 64dd504..eecabd7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,4 +1,6 @@
+-.PHONY: setup db-init run test quality sast migrate verify backup restore
++.PHONY: setup db-init run test quality sast migrate verify backup restore \
++	container-init container-up container-down container-logs container-migrate \
++	container-backup container-restore container-restore-new container-lint container-check
+ 
+ setup:
+ 	python3 -m venv venv
+@@ -33,3 +35,43 @@ ifeq ($(strip $(FILE)),)
+ endif
+ 	python scripts/db_restore.py $(FILE)
+ verify: quality sast test
++
++# ---- ЛР4: контейнерное окружение (подробности — docs/CONTAINER.md) ----
++
++COMPOSE = docker compose --env-file .env.compose
++
++container-init:
++	python scripts/container_init.py
++
++container-up: container-init
++	$(COMPOSE) up -d --build
++
++container-down:
++	$(COMPOSE) down
++
++container-logs:
++	$(COMPOSE) logs --tail=100
++
++container-migrate:
++	$(COMPOSE) run --rm migrate
++
++container-backup:
++	python scripts/container_db.py backup $(if $(OUTPUT),--output $(OUTPUT),)
++
++container-restore:
++ifeq ($(strip $(FILE)),)
++	$(error Использование: make container-restore FILE=backups/container_duma_<timestamp>.sql)
++endif
++	python scripts/container_db.py restore $(FILE)
++
++container-restore-new:
++ifeq ($(strip $(FILE)),)
++	$(error Использование: make container-restore-new FILE=backups/container_duma_<timestamp>.sql)
++endif
++	python scripts/container_db.py restore $(FILE) --new-volume
++
++container-lint:
++	python scripts/container_check.py --static-only
++
++container-check:
++	python scripts/container_check.py
+diff --git a/README.md b/README.md
+index 1a140a8..43dac09 100644
+--- a/README.md
++++ b/README.md
+@@ -76,8 +76,27 @@ make migrate   # применение миграций
+ make backup    # резервная копия БД (pg_dump)
+ make restore FILE=backups/duma_<ts>.sql   # восстановление (psql)
+ make verify    # quality + sast + test, обязателен перед PR
++make container-check   # проверка контейнерного окружения (Docker), см. ниже
+ ```
+ 
++## Запуск в контейнерах (ЛР4)
++
++Приложение и PostgreSQL запускаются в Docker Compose: БД во внутренней сети без
++публикации порта, данные в volume, миграции отдельным контейнером, приложение
++от непривилегированного пользователя. Нужен Docker (Docker Desktop / Engine).
++
++```
++make container-up          # создать .env.compose (случайный пароль), собрать и запустить
++make container-logs        # логи
++make container-backup      # резервная копия БД из контейнера
++make container-restore-new FILE=backups/container_duma_<ts>.sql   # восстановить в НОВЫЙ volume
++make container-check       # автоматическая проверка окружения и запретов
++make container-down        # остановить (данные в volume сохраняются)
++```
++
++Приложение: `http://localhost:8000` (только с этого компьютера). Подробности,
++лимиты ресурсов и сценарий показа — [`docs/CONTAINER.md`](docs/CONTAINER.md).
++
+ ## Git-процесс
+ 
+ Правила ветвления, коммитов и приёмки PR — в
+diff --git a/compose.yaml b/compose.yaml
+new file mode 100644
+index 0000000..96a6c2d
+--- /dev/null
++++ b/compose.yaml
+@@ -0,0 +1,102 @@
++# ЛР4: приложение + PostgreSQL в контейнерах.
++# Запуск: make container-init (один раз) и make container-up.
++# Секреты берутся из .env.compose (в git не попадает), здесь их нет.
++name: city-duma
++
++services:
++  db:
++    image: postgres:16.10-alpine
++    restart: unless-stopped
++    environment:
++      POSTGRES_USER: ${POSTGRES_USER:?задайте POSTGRES_USER в .env.compose}
++      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env.compose}
++      POSTGRES_DB: ${POSTGRES_DB:?задайте POSTGRES_DB в .env.compose}
++    volumes:
++      - pgdata:/var/lib/postgresql/data
++    networks:
++      - backend
++    # Порт БД наружу НЕ публикуется: к ней ходит только приложение
++    # по внутренней сети backend (адрес db:5432).
++    healthcheck:
++      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
++      interval: 5s
++      timeout: 3s
++      retries: 12
++      start_period: 10s
++    # Лимиты: 512 МиБ хватает PostgreSQL на учебных объёмах данных
++    # (shared_buffers по умолчанию 128 МиБ + соединения), 1 CPU, не больше 200 процессов.
++    mem_limit: 512m
++    cpus: 1.0
++    pids_limit: 200
++    # PostgreSQL по SIGINT делает «быструю» остановку с сохранением данных.
++    stop_grace_period: 30s
++
++  migrate:
++    # Разовый контейнер: накатывает миграции Alembic и завершается.
++    image: city-duma:0.4.0
++    build:
++      context: .
++    command: ["alembic", "upgrade", "head"]
++    restart: "no"
++    environment:
++      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
++    depends_on:
++      db:
++        condition: service_healthy
++    networks:
++      - backend
++    read_only: true
++    cap_drop: [ALL]
++    security_opt: ["no-new-privileges:true"]
++    mem_limit: 256m
++    cpus: 0.5
++    pids_limit: 100
++
++  app:
++    image: city-duma:0.4.0
++    build:
++      context: .
++    restart: unless-stopped
++    environment:
++      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
++      ENVIRONMENT: ${ENVIRONMENT:-container}
++    depends_on:
++      db:
++        condition: service_healthy
++      migrate:
++        condition: service_completed_successfully
++    ports:
++      # Единственный опубликованный порт: HTTP приложения, по умолчанию только
++      # на localhost хоста (APP_BIND=0.0.0.0 открывает его в сеть осознанно).
++      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
++    networks:
++      - frontend
++      - backend
++    healthcheck:
++      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"]
++      interval: 10s
++      timeout: 3s
++      retries: 3
++      start_period: 15s
++    read_only: true
++    tmpfs:
++      - /tmp
++    cap_drop: [ALL]
++    security_opt: ["no-new-privileges:true"]
++    # Лимиты: приложение (uvicorn + SQLAlchemy) в покое занимает ~100 МиБ,
++    # 256 МиБ — запас на нагрузку; 0.5 CPU и 100 процессов — защита от «съедания» хоста.
++    mem_limit: 256m
++    cpus: 0.5
++    pids_limit: 100
++    # Docker шлёт SIGTERM, uvicorn завершает запросы и выходит с кодом 0;
++    # если за 20 секунд не вышел — SIGKILL.
++    stop_grace_period: 20s
++
++networks:
++  # internal: true — у сети нет выхода наружу и входа снаружи; здесь живёт БД.
++  backend:
++    internal: true
++  frontend: {}
++
++volumes:
++  pgdata:
+diff --git a/docs/CONTAINER.md b/docs/CONTAINER.md
+new file mode 100644
+index 0000000..40b1441
+--- /dev/null
++++ b/docs/CONTAINER.md
+@@ -0,0 +1,111 @@
++# Контейнерное окружение (ЛР4)
++
++Приложение «Городская Дума» и PostgreSQL запускаются в Docker Compose.
++Локальная работа из ЛР3 (`make run`, `make verify`, `make backup`) остаётся как
++была — контейнерные команды начинаются с `container-` и не пересекаются с ней.
++
++## Состав
++
++| Файл | Назначение |
++|---|---|
++| `Dockerfile` | Образ приложения: закреплённая версия Python, зависимости из `requirements-runtime.txt`, пользователь `app` (UID 10001), `HEALTHCHECK`, `STOPSIGNAL SIGTERM` |
++| `.dockerignore` | В образ не попадают `.env*`, `.git`, `backups`, тесты, документация |
++| `compose.yaml` | Сервисы `db`, `migrate`, `app`, сети `backend` (internal) и `frontend`, volume `pgdata` |
++| `.env.compose` | Пароль БД и порт — создаётся `make container-init`, в git не попадает |
++| `scripts/container_db.py` | Резервное копирование и восстановление внутри контейнера |
++| `scripts/container_check.py`, `scripts/container_policy.py` | `make container-check` и правила запретов |
++
++```
++ хост ──127.0.0.1:8000──► app ──(сеть backend, internal)──► db ──► volume pgdata
++                          ▲                                  (порт 5432 наружу НЕ опубликован)
++        migrate (разово: alembic upgrade head, затем завершается)
++```
++
++## Соответствие заданию
++
++| № | Требование | Как выполнено |
++|---|---|---|
++| 1 | Dockerfile и .dockerignore | `Dockerfile`, `.dockerignore` |
++| 2 | Воспроизводимая сборка | образы `python:3.11.13-slim-bookworm` и `postgres:16.10-alpine` закреплены точной версией; Python-зависимости — точные версии `==` (`requirements-runtime.txt` синхронизирован с `requirements.txt`, это проверяет `container-check`); слой зависимостей кешируется |
++| 3 | Не root | `USER 10001:10001`; в compose `cap_drop: [ALL]`, `no-new-privileges`, `read_only` файловая система (запись только в `tmpfs /tmp`) |
++| 4 | Настройки через переменные окружения | `DATABASE_URL`, `ENVIRONMENT` задаёт compose из `.env.compose`; приложение читает их через `pydantic-settings`; в образе секретов нет |
++| 5 | Корректное завершение | `CMD` в exec-форме (uvicorn — PID 1 и сам получает `SIGTERM`), `STOPSIGNAL SIGTERM`, `--timeout-graceful-shutdown 15`, `stop_grace_period: 20s` |
++| 6 | Compose для приложения и БД | `compose.yaml` |
++| 7 | Сеть, volume, healthcheck, порядок | сеть `backend` с `internal: true`; named volume `pgdata`; healthcheck у `db` (`pg_isready`) и `app` (`/health`); `app` ждёт `db: service_healthy` и `migrate: service_completed_successfully` |
++| 8 | Порт БД не публикуется | у `db` нет `ports`; опубликован только `127.0.0.1:8000 → app` |
++| 9 | Данные после пересоздания/обновления образа | volume `pgdata` не удаляется при `down`/`--force-recreate`; проверяет `container-check` |
++| 10 | Миграции, backup, restore в контейнерах | `make container-migrate`, `make container-backup`, `make container-restore`, `make container-restore-new` |
++| 11 | Лимиты ресурсов | см. ниже |
++| 12 | `make container-check` | `scripts/container_check.py` |
++| 13 | Запреты | `CONTRIBUTING.md` + автоматические правила `scripts/container_policy.py` |
++| 14 | Изменения только после container-check | `CONTRIBUTING.md`, п. 2 и Definition of Done |
++
++## Лимиты ресурсов и обоснование
++
++| Сервис | memory | cpus | pids | Почему |
++|---|---|---|---|---|
++| `app` | 256 МиБ | 0.5 | 100 | uvicorn + SQLAlchemy в покое занимают порядка 100 МиБ; 256 МиБ — запас на нагрузку. Утечка памяти или «форк-бомба» упрётся в лимит и не заберёт хост |
++| `db` | 512 МиБ | 1.0 | 200 | `shared_buffers` по умолчанию 128 МиБ плюс память на соединения; для учебных объёмов данных этого достаточно с запасом |
++| `migrate` | 256 МиБ | 0.5 | 100 | разовая задача, живёт секунды |
++
++Значения скорректируйте по `docker stats`, если нагрузка изменится.
++
++## Первый запуск
++
++```
++make container-up       # создаёт .env.compose, собирает образ, запускает db → migrate → app
++docker compose --env-file .env.compose ps
++curl http://localhost:8000/health
++```
++
++`make container-down` останавливает окружение, данные остаются в volume.
++Чтобы стереть данные, нужно явно удалить volume: `docker compose --env-file .env.compose down -v`.
++
++## Что проверяет `make container-check`
++
++Статика (без Docker, `make container-lint`): правила запретов применяются к `Dockerfile`,
++`.dockerignore`, `compose.yaml`, `requirements-*.txt` и списку файлов git.
++
++Динамика (нужен Docker; окружение поднимается в отдельном проекте `city-duma-check` со своим
++volume, паролем и портом — рабочие данные не затрагиваются):
++
++1. сборка образа и запуск, `db` и `app` в статусе `healthy`;
++2. миграции выполнены контейнером `migrate` (код выхода 0);
++3. процесс приложения запущен не от root (`id -u` и UID PID 1);
++4. порт БД не опубликован на хост;
++5. лимиты ресурсов применены;
++6. приложение отвечает, запись в БД создаётся;
++7. запись сохранилась после `down` → `up` (пересоздание контейнеров);
++8. запись сохранилась после пересборки образа (`up --build --force-recreate`);
++9. остановка по SIGTERM штатная: код выхода 0 (или 143), быстрее `stop_grace_period`, в логах `Shutting down`;
++10. резервная копия → `down -v` → восстановление в новый volume: запись и версия миграции 0004 на месте.
++
++Если Docker недоступен, динамические проверки считаются проваленными, а не пропущенными.
++
++## Запреты (п. 13) и где они закреплены
++
++| Запрет | Правило в `container_policy.py` |
++|---|---|
++| `latest` или образ без тега | `FROM` в Dockerfile и `image:` в compose |
++| запуск от root | нет `USER` / `USER root` / `user: root` / `privileged` |
++| секреты в образе | `ENV`/`ARG` с `PASSWORD`/`TOKEN`/`SECRET`…, `COPY .env`; пароли литералами в compose; `.env*` в git |
++| отключение healthcheck | `HEALTHCHECK NONE`, `healthcheck: disable`, отсутствие healthcheck |
++| лишние порты | любой `ports` у `db`; у остальных — кроме 8000 приложения |
++
++Каждое правило покрыто тестом, который намеренно ломает конфигурацию:
++`tests/unit/test_container_policy.py`.
++
++## Резервная копия и восстановление
++
++```
++make container-backup                                          # backups/container_duma_<время>.sql
++make container-restore FILE=backups/container_duma_<время>.sql        # в работающую БД
++make container-restore-new FILE=backups/container_duma_<время>.sql   # в НОВЫЙ volume
++```
++
++`pg_dump` и `psql` запускаются внутри контейнера `db` (`docker compose exec`), на хосте
++клиентские утилиты PostgreSQL не нужны, пароль в командную строку не попадает.
++Копия делается с `--clean --if-exists`, восстановление — `psql -v ON_ERROR_STOP=1
++--single-transaction`: либо БД целиком вернулась к состоянию копии, либо не изменилась.
++`restore-new` удаляет контейнеры и volume (`down -v`), поднимает пустую БД на новом
++volume, накатывает копию и запускает приложение.
+diff --git a/requirements-runtime.txt b/requirements-runtime.txt
+new file mode 100644
+index 0000000..8aac8fb
+--- /dev/null
++++ b/requirements-runtime.txt
+@@ -0,0 +1,9 @@
++# Зависимости, нужные приложению в контейнере (без pytest, ruff, black, bandit).
++# Версии обязаны совпадать с requirements.txt — это проверяет make container-check.
++fastapi==0.141.1
++uvicorn[standard]==0.53.0
++sqlalchemy==2.0.53
++alembic==1.20.0
++pydantic==2.13.5
++pydantic-settings==2.15.0
++psycopg2-binary==2.9.13
+diff --git a/requirements.txt b/requirements.txt
+index abb6d7f..2a74749 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -11,3 +11,4 @@ black==26.5.1
+ psycopg2-binary==2.9.13
+ pytest-cov==7.0.0
+ bandit==1.9.4
++PyYAML==6.0.3
+diff --git a/scripts/_compose.py b/scripts/_compose.py
+new file mode 100644
+index 0000000..9816545
+--- /dev/null
++++ b/scripts/_compose.py
+@@ -0,0 +1,79 @@
++"""Общие помощники для работы с Docker Compose (ЛР4)."""
++
++from __future__ import annotations
++
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++DEFAULT_ENV_FILE = REPO_ROOT / ".env.compose"
++
++
++def docker_binary() -> str:
++    path = shutil.which("docker")
++    if not path:
++        raise SystemExit(
++            "Не найден docker. Установите Docker Desktop (Windows) или Docker "
++            "Engine + плагин compose (Linux) и запустите его."
++        )
++    return path
++
++
++def compose_cmd(env_file: Path | None = None, project: str | None = None) -> list[str]:
++    """Начало команды `docker compose` с нужным env-файлом и именем проекта."""
++    cmd = [docker_binary(), "compose", "--env-file", str(env_file or DEFAULT_ENV_FILE)]
++    if project:
++        cmd += ["-p", project]
++    return cmd
++
++
++def run(
++    cmd: list[str],
++    *,
++    check: bool = True,
++    stdin_path: Path | None = None,
++    stdout_path: Path | None = None,
++    quiet: bool = False,
++) -> subprocess.CompletedProcess:
++    """Запуск команды. Вывод бинарный-безопасный: файлы пишутся/читаются как bytes.
++
++    stdout_path/stdin_path нужны для дампов: перенаправление `>` в PowerShell
++    портит кодировку SQL-файла, поэтому поток копирует сам Python.
++    """
++    stdin = stdin_path.open("rb") if stdin_path else None
++    stdout = (
++        stdout_path.open("wb") if stdout_path else (subprocess.PIPE if quiet else None)
++    )
++    try:
++        result = subprocess.run(
++            cmd,
++            cwd=REPO_ROOT,
++            stdin=stdin,
++            stdout=stdout,
++            stderr=subprocess.PIPE if (quiet or stdout_path or stdin_path) else None,
++            check=False,
++        )
++    finally:
++        if stdin:
++            stdin.close()
++        if stdout_path and stdout:
++            stdout.close()
++    if check and result.returncode != 0:
++        err = (result.stderr or b"").decode("utf-8", errors="replace").strip()
++        raise SystemExit(
++            f"Команда завершилась с кодом {result.returncode}: {' '.join(cmd)}\n{err}"
++        )
++    return result
++
++
++def out(cmd: list[str]) -> str:
++    """Запустить команду и вернуть stdout текстом (ошибка — SystemExit)."""
++    result = run(cmd, quiet=True)
++    return result.stdout.decode("utf-8", errors="replace").strip()
++
++
++def log(message: str) -> None:
++    print(message, flush=True)
++    sys.stdout.flush()
+diff --git a/scripts/container_check.py b/scripts/container_check.py
+new file mode 100644
+index 0000000..22c4953
+--- /dev/null
++++ b/scripts/container_check.py
+@@ -0,0 +1,375 @@
++"""make container-check — автоматическая проверка контейнерного окружения (ЛР4).
++
++Два этапа:
++
++1. СТАТИКА (без Docker): правила из scripts/container_policy.py применяются к
++   Dockerfile, .dockerignore, compose.yaml, requirements и списку файлов git.
++   Запрещены: тег latest, запуск от root, секреты в образе, отключённый
++   healthcheck, лишние опубликованные порты (п.13 задания).
++
++2. ДИНАМИКА (нужен запущенный Docker): окружение реально собирается и
++   запускается в ОТДЕЛЬНОМ compose-проекте `city-duma-check` (со своим volume
++   и случайным паролем — рабочие данные в `city-duma` не затрагиваются).
++   Проверяются: сборка и запуск, healthy, миграции, пользователь процесса,
++   порт БД не опубликован, лимиты, сохранность данных после пересоздания
++   контейнеров и после пересборки образа, корректная остановка по SIGTERM,
++   резервная копия и восстановление в новый volume.
++
++Любое нарушение — код возврата 1. Ничего не пропускается молча: если Docker
++недоступен, динамический этап считается проваленным.
++
++    python scripts/container_check.py              # статика + динамика
++    python scripts/container_check.py --static-only
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import secrets
++import socket
++import subprocess
++import sys
++import tempfile
++import time
++import urllib.error
++import urllib.request
++import uuid
++from pathlib import Path
++
++import yaml
++from _compose import REPO_ROOT, compose_cmd, docker_binary, log, out, run
++from container_db import backup, restore, wait_healthy
++from container_policy import (
++    check_compose,
++    check_dockerfile,
++    check_dockerignore,
++    check_requirements_sync,
++    check_secrets_not_tracked,
++)
++
++PROJECT = "city-duma-check"
++STOP_GRACE_SECONDS = 20
++
++
++# ----------------------------------------------------------------- статика --
++
++
++def _git_tracked() -> list[str]:
++    try:
++        result = subprocess.run(
++            ["git", "ls-files"],
++            cwd=REPO_ROOT,
++            capture_output=True,
++            text=True,
++            check=False,
++        )
++    except FileNotFoundError:
++        return []
++    return result.stdout.splitlines() if result.returncode == 0 else []
++
++
++def static_checks() -> list[str]:
++    problems: list[str] = []
++    read = lambda name: (REPO_ROOT / name).read_text(encoding="utf-8")
++    for name in (
++        "Dockerfile",
++        ".dockerignore",
++        "compose.yaml",
++        "requirements-runtime.txt",
++    ):
++        if not (REPO_ROOT / name).exists():
++            problems.append(f"нет файла {name}")
++    if problems:
++        return problems
++    problems += check_dockerfile(read("Dockerfile"))
++    problems += check_dockerignore(read(".dockerignore"))
++    problems += check_compose(yaml.safe_load(read("compose.yaml")))
++    problems += check_requirements_sync(
++        read("requirements.txt"), read("requirements-runtime.txt")
++    )
++    problems += check_secrets_not_tracked(_git_tracked())
++    return problems
++
++
++# ---------------------------------------------------------------- динамика --
++
++
++class Env:
++    """Изолированное окружение проверки: свой проект, volume, порт и пароль."""
++
++    def __init__(self, tmp: Path) -> None:
++        with socket.socket() as sock:
++            sock.bind(("127.0.0.1", 0))
++            self.port = sock.getsockname()[1]
++        self.env_file = tmp / ".env.check"
++        self.env_file.write_text(
++            "POSTGRES_USER=duma_check\n"
++            f"POSTGRES_PASSWORD={secrets.token_hex(16)}\n"
++            "POSTGRES_DB=city_duma_check\n"
++            f"APP_PORT={self.port}\n"
++            "APP_BIND=127.0.0.1\n"
++            "ENVIRONMENT=container-check\n",
++            encoding="utf-8",
++        )
++
++    def compose(self, *args: str, check: bool = True, quiet: bool = True):
++        return run(
++            [*compose_cmd(self.env_file, PROJECT), *args], check=check, quiet=quiet
++        )
++
++    def container_id(self, service: str, all_states: bool = False) -> str:
++        args = ["ps", "-q", service] if not all_states else ["ps", "-a", "-q", service]
++        ids = out([*compose_cmd(self.env_file, PROJECT), *args]).split()
++        if not ids:
++            raise AssertionError(f"контейнер сервиса {service} не найден")
++        return ids[0]
++
++    def inspect(self, container: str, template: str) -> str:
++        return out([docker_binary(), "inspect", "-f", template, container])
++
++    def wait_all(self) -> None:
++        for service in ("db", "app"):
++            wait_healthy(service, self.env_file, PROJECT, timeout=180)
++
++    def http(self, method: str, path: str, body: dict | None = None):
++        data = json.dumps(body).encode() if body is not None else None
++        request = urllib.request.Request(
++            f"http://127.0.0.1:{self.port}{path}",
++            data=data,
++            method=method,
++            headers={"Content-Type": "application/json"},
++        )
++        try:
++            with urllib.request.urlopen(request, timeout=10) as response:
++                return response.status, json.loads(response.read() or b"null")
++        except urllib.error.HTTPError as exc:
++            return exc.code, None
++
++    def deputy_names(self) -> list[str]:
++        status, data = self.http("GET", "/deputies")
++        if status != 200:
++            raise AssertionError(f"GET /deputies вернул {status}")
++        return [item["full_name"] for item in data]
++
++
++def dynamic_checks() -> list[str]:
++    failures: list[str] = []
++
++    def step(title: str, func) -> bool:
++        try:
++            detail = func()
++            log(f"  [OK]   {title}" + (f" — {detail}" if detail else ""))
++            return True
++        except (AssertionError, SystemExit, Exception) as exc:  # noqa: BLE001
++            message = f"{title}: {exc}"
++            failures.append(message)
++            log(f"  [FAIL] {message}")
++            return False
++
++    try:
++        docker_binary()
++        run([docker_binary(), "info"], quiet=True)
++    except SystemExit as exc:
++        return [f"Docker недоступен: {exc}"]
++
++    with tempfile.TemporaryDirectory() as tmpdir:
++        tmp = Path(tmpdir)
++        env = Env(tmp)
++        marker = f"Проверка-{uuid.uuid4().hex[:8]}"
++
++        def compose_valid():
++            env.compose("config", "-q")
++
++        def build_and_start():
++            run(
++                [*compose_cmd(env.env_file, PROJECT), "up", "-d", "--build"],
++                quiet=False,
++            )
++            env.wait_all()
++
++        def migrations_done():
++            cid = env.container_id("migrate", all_states=True)
++            state = env.inspect(cid, "{{.State.Status}} {{.State.ExitCode}}")
++            assert state == "exited 0", f"миграции завершились так: {state}"
++            return "alembic upgrade head выполнен, код 0"
++
++        def process_user():
++            uid = env.compose("exec", "-T", "app", "id", "-u").stdout.decode().strip()
++            assert uid != "0", "процесс приложения запущен от root"
++            status = env.compose(
++                "exec", "-T", "app", "cat", "/proc/1/status"
++            ).stdout.decode()
++            pid1_uid = next(
++                line.split()[1]
++                for line in status.splitlines()
++                if line.startswith("Uid:")
++            )
++            assert pid1_uid != "0", "PID 1 (uvicorn) работает от root"
++            cfg_user = env.inspect(env.container_id("app"), "{{.Config.User}}")
++            assert cfg_user not in {"", "0", "root"}, f"USER образа: {cfg_user!r}"
++            return f"uid={uid}, PID 1 uid={pid1_uid}"
++
++        def db_not_published():
++            ports = env.inspect(
++                env.container_id("db"), "{{json .NetworkSettings.Ports}}"
++            )
++            bindings = [v for v in json.loads(ports).values() if v]
++            assert not bindings, f"порт БД опубликован на хост: {ports}"
++            result = env.compose("port", "db", "5432", check=False)
++            assert (
++                result.returncode != 0 or not result.stdout.strip()
++            ), "docker compose port db показывает проброс"
++            return "порт 5432 наружу не опубликован"
++
++        def resource_limits():
++            for service in ("app", "db"):
++                cid = env.container_id(service)
++                mem = int(env.inspect(cid, "{{.HostConfig.Memory}}"))
++                cpus = int(env.inspect(cid, "{{.HostConfig.NanoCpus}}"))
++                pids = int(env.inspect(cid, "{{.HostConfig.PidsLimit}}"))
++                assert (
++                    mem > 0 and cpus > 0 and pids > 0
++                ), f"{service}: лимиты не применены"
++            return "memory, cpus, pids заданы у app и db"
++
++        def api_works():
++            assert env.http("GET", "/health")[0] == 200, "/health не 200"
++            status, _ = env.http("POST", "/deputies", {"full_name": marker})
++            assert status == 201, f"POST /deputies вернул {status}"
++            assert marker in env.deputy_names()
++
++        def survives_recreate():
++            env.compose("down")  # без -v: volume остаётся
++            run([*compose_cmd(env.env_file, PROJECT), "up", "-d"], quiet=False)
++            env.wait_all()
++            assert (
++                marker in env.deputy_names()
++            ), "данные пропали после пересоздания контейнеров"
++            return "после down/up запись на месте"
++
++        def survives_image_update():
++            before = env.container_id("app")
++            run(
++                [
++                    *compose_cmd(env.env_file, PROJECT),
++                    "up",
++                    "-d",
++                    "--build",
++                    "--force-recreate",
++                ],
++                quiet=False,
++            )
++            env.wait_all()
++            assert env.container_id("app") != before, "контейнер не был пересоздан"
++            assert (
++                marker in env.deputy_names()
++            ), "данные пропали после обновления образа"
++            return "после пересборки образа и пересоздания запись на месте"
++
++        def graceful_stop():
++            cid = env.container_id("app")
++            started = time.monotonic()
++            env.compose("stop", "-t", str(STOP_GRACE_SECONDS), "app")
++            elapsed = time.monotonic() - started
++            code = env.inspect(cid, "{{.State.ExitCode}}")
++            logs = env.compose("logs", "--no-color", "app").stdout.decode(
++                "utf-8", "replace"
++            )
++            # 0 - штатный выход uvicorn (он PID 1); 143 = 128 + SIGTERM - тоже штатное
++            # завершение по сигналу. 137 = SIGKILL: не успел, остановка некорректна.
++            assert code in {
++                "0",
++                "143",
++            }, f"код выхода {code} (137 = убит SIGKILL, остановка некорректна)"
++            assert elapsed < STOP_GRACE_SECONDS - 1, f"остановка заняла {elapsed:.1f} с"
++            assert (
++                "Shutting down" in logs or "Finished server process" in logs
++            ), "в логах нет сообщений uvicorn о штатном завершении"
++            run([*compose_cmd(env.env_file, PROJECT), "up", "-d"], quiet=False)
++            env.wait_all()
++            return f"SIGTERM → штатный выход, код {code}, за {elapsed:.1f} с"
++
++        def restore_into_new_volume():
++            dump = backup(env.env_file, PROJECT, tmp / "check.sql")
++            volume = f"{PROJECT}_pgdata"
++            created_before = out(
++                [docker_binary(), "volume", "inspect", "-f", "{{.CreatedAt}}", volume]
++            )
++            restore(dump, env.env_file, PROJECT, new_volume=True)
++            env.wait_all()
++            created_after = out(
++                [docker_binary(), "volume", "inspect", "-f", "{{.CreatedAt}}", volume]
++            )
++            assert created_before != created_after, "volume не был пересоздан"
++            assert marker in env.deputy_names(), "после восстановления записи нет"
++            version = (
++                env.compose(
++                    "exec",
++                    "-T",
++                    "db",
++                    "sh",
++                    "-c",
++                    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc '
++                    '"SELECT version_num FROM alembic_version"',
++                )
++                .stdout.decode()
++                .strip()
++            )
++            assert (
++                version == "0004"
++            ), f"версия миграций после восстановления: {version!r}"
++            return "данные и версия миграции 0004 вернулись в новый volume"
++
++        try:
++            if step(
++                "compose.yaml корректен (docker compose config)", compose_valid
++            ) and step(
++                "сборка образа и запуск окружения, db/app healthy", build_and_start
++            ):
++                step("миграции выполнены в контейнере", migrations_done)
++                step("процесс приложения — не root", process_user)
++                step("порт БД не опубликован", db_not_published)
++                step("лимиты ресурсов применены", resource_limits)
++                if step("приложение отвечает, запись в БД создана", api_works):
++                    step(
++                        "данные переживают пересоздание контейнеров", survives_recreate
++                    )
++                    step("данные переживают обновление образа", survives_image_update)
++                    step("остановка по SIGTERM корректна", graceful_stop)
++                    step(
++                        "копия → восстановление в новый volume", restore_into_new_volume
++                    )
++        finally:
++            env.compose("down", "-v", "--remove-orphans", check=False)
++    return failures
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument(
++        "--static-only", action="store_true", help="только проверка файлов, без Docker"
++    )
++    args = parser.parse_args()
++
++    log("== Статические проверки (Dockerfile, compose.yaml, запреты) ==")
++    problems = static_checks()
++    for problem in problems:
++        log(f"  [FAIL] {problem}")
++    if not problems:
++        log(
++            "  [OK]   запреты latest / root / секреты / healthcheck / лишние порты соблюдены"
++        )
++
++    if not args.static_only:
++        log("== Динамические проверки (реальный запуск в Docker) ==")
++        problems += dynamic_checks()
++
++    if problems:
++        log(f"\ncontainer-check НЕ ПРОЙДЕН: нарушений — {len(problems)}")
++        sys.exit(1)
++    log("\ncontainer-check пройден: контейнерное окружение соответствует требованиям.")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/scripts/container_db.py b/scripts/container_db.py
+new file mode 100644
+index 0000000..38f53a5
+--- /dev/null
++++ b/scripts/container_db.py
+@@ -0,0 +1,141 @@
++"""Резервное копирование и восстановление БД в контейнерной среде (ЛР4, п.10).
++
++Работает с контейнером `db` из compose.yaml: pg_dump/psql запускаются ВНУТРИ
++контейнера (`docker compose exec`), поэтому на хосте не нужны клиентские утилиты
++PostgreSQL, а пароль БД не попадает в командную строку — контейнер берёт его из
++собственных переменных окружения.
++
++    python scripts/container_db.py backup [--output FILE]
++    python scripts/container_db.py restore FILE              # в работающую БД
++    python scripts/container_db.py restore FILE --new-volume # в НОВЫЙ volume
++
++--new-volume: контейнеры и volume с данными удаляются (down -v), поднимается
++чистая БД на новом volume, в неё накатывается копия, затем запускается всё
++окружение. Именно этот сценарий — «восстановление БД в новый volume».
++"""
++
++from __future__ import annotations
++
++import argparse
++import datetime as dt
++import sys
++import time
++from pathlib import Path
++
++from _compose import DEFAULT_ENV_FILE, REPO_ROOT, compose_cmd, log, out, run
++
++BACKUP_DIR = REPO_ROOT / "backups"
++DUMP_MARKER = b"PostgreSQL database dump"
++
++# Команды выполняются внутри контейнера db: ${...} раскрывает sh контейнера.
++DUMP_SH = (
++    'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" '
++    "--no-owner --no-privileges --clean --if-exists --encoding=UTF8"
++)
++RESTORE_SH = (
++    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" '
++    "-v ON_ERROR_STOP=1 --single-transaction --quiet"
++)
++
++
++def wait_healthy(
++    service: str, env_file: Path, project: str | None, timeout: int = 120
++) -> None:
++    """Ждёт статуса healthy у сервиса (по встроенному healthcheck)."""
++    deadline = time.monotonic() + timeout
++    last = "unknown"
++    while time.monotonic() < deadline:
++        ids = out([*compose_cmd(env_file, project), "ps", "-q", service]).split()
++        if ids:
++            last = out(
++                [
++                    compose_cmd()[0],
++                    "inspect",
++                    "-f",
++                    "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
++                    ids[0],
++                ]
++            )
++            if last == "healthy":
++                return
++            if last in {"exited", "dead"}:
++                break
++        time.sleep(2)
++    raise SystemExit(
++        f"Сервис {service} не стал healthy за {timeout} с (статус: {last})"
++    )
++
++
++def backup(
++    env_file: Path = DEFAULT_ENV_FILE,
++    project: str | None = None,
++    output: Path | None = None,
++) -> Path:
++    if output is None:
++        stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d_%H%M%S")
++        output = BACKUP_DIR / f"container_duma_{stamp}.sql"
++    output.parent.mkdir(parents=True, exist_ok=True)
++    cmd = [*compose_cmd(env_file, project), "exec", "-T", "db", "sh", "-c", DUMP_SH]
++    result = run(cmd, check=False, stdout_path=output)
++    if result.returncode != 0:
++        output.unlink(missing_ok=True)
++        err = (result.stderr or b"").decode("utf-8", errors="replace").strip()
++        raise SystemExit(f"pg_dump завершился с ошибкой ({result.returncode}): {err}")
++    if DUMP_MARKER not in output.read_bytes()[:2000]:
++        output.unlink(missing_ok=True)
++        raise SystemExit("Резервная копия пуста или повреждена — файл удалён.")
++    log(f"Резервная копия создана: {output} ({output.stat().st_size} байт)")
++    return output
++
++
++def restore(
++    dump: Path,
++    env_file: Path = DEFAULT_ENV_FILE,
++    project: str | None = None,
++    new_volume: bool = False,
++) -> None:
++    if not dump.exists():
++        raise SystemExit(f"Файл резервной копии не найден: {dump}")
++    base = compose_cmd(env_file, project)
++    if new_volume:
++        log("Удаляю контейнеры и volume с данными (down -v) ...")
++        run([*base, "down", "-v", "--remove-orphans"])
++        log("Поднимаю БД на новом пустом volume ...")
++        run([*base, "up", "-d", "db"])
++    wait_healthy("db", env_file, project)
++    log(f"Восстанавливаю БД из {dump} ...")
++    cmd = [*base, "exec", "-T", "db", "sh", "-c", RESTORE_SH]
++    result = run(cmd, check=False, stdin_path=dump, stdout_path=None, quiet=True)
++    if result.returncode != 0:
++        err = (result.stderr or b"").decode("utf-8", errors="replace").strip()
++        raise SystemExit(
++            f"Восстановление не выполнено (psql код {result.returncode}), БД не изменена:\n{err}"
++        )
++    if new_volume:
++        log("Запускаю приложение (миграции пройдут как no-op) ...")
++        run([*base, "up", "-d"])
++    log("БД восстановлена.")
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
++    parser.add_argument("--project", default=None, help="имя compose-проекта")
++    sub = parser.add_subparsers(dest="command", required=True)
++    p_backup = sub.add_parser("backup", help="сделать резервную копию")
++    p_backup.add_argument("--output", type=Path, default=None)
++    p_restore = sub.add_parser("restore", help="восстановить из копии")
++    p_restore.add_argument("dump_path", type=Path)
++    p_restore.add_argument("--new-volume", action="store_true")
++    args = parser.parse_args()
++
++    if not args.env_file.exists():
++        raise SystemExit("Нет .env.compose — выполните make container-init")
++    if args.command == "backup":
++        backup(args.env_file, args.project, args.output)
++    else:
++        restore(args.dump_path, args.env_file, args.project, args.new_volume)
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/scripts/container_init.py b/scripts/container_init.py
+new file mode 100644
+index 0000000..f99bb6b
+--- /dev/null
++++ b/scripts/container_init.py
+@@ -0,0 +1,30 @@
++"""Создание .env.compose для контейнерного окружения (ЛР4).
++
++Берёт .env.compose.example, подставляет случайный пароль БД и сохраняет как
++.env.compose. Если файл уже есть — ничего не меняет (чтобы не потерять пароль
++от существующего volume). Файл в git не попадает (.gitignore).
++"""
++
++from __future__ import annotations
++
++import secrets
++
++from _compose import DEFAULT_ENV_FILE, REPO_ROOT
++
++
++def main() -> None:
++    if DEFAULT_ENV_FILE.exists():
++        print(f"{DEFAULT_ENV_FILE.name} уже существует — оставляю без изменений.")
++        return
++    example = (REPO_ROOT / ".env.compose.example").read_text(encoding="utf-8")
++    lines = []
++    for line in example.splitlines():
++        if line.startswith("POSTGRES_PASSWORD="):
++            line = f"POSTGRES_PASSWORD={secrets.token_hex(16)}"
++        lines.append(line)
++    DEFAULT_ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
++    print(f"Создан {DEFAULT_ENV_FILE.name} со случайным паролем БД.")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/scripts/container_policy.py b/scripts/container_policy.py
+new file mode 100644
+index 0000000..497aa27
+--- /dev/null
++++ b/scripts/container_policy.py
+@@ -0,0 +1,315 @@
++"""Политики контейнерного окружения (ЛР4, п.13): чистые функции без Docker.
++
++Каждая проверка принимает уже прочитанные данные (текст Dockerfile, словарь
++compose.yaml, ...) и возвращает список нарушений — пустой список означает
++«всё в порядке». Благодаря этому правила тестируются обычными unit-тестами
++(tests/unit/test_container_policy.py), а make container-check лишь читает файлы
++репозитория и применяет к ним эти функции.
++
++Закреплённые запреты:
++  1. тег latest (или отсутствие тега) у любого образа;
++  2. запуск от root (в Dockerfile и в compose);
++  3. секреты в образе (ENV/ARG с паролем, COPY .env и ключей) и литеральные
++     пароли в compose;
++  4. отключение healthcheck;
++  5. публикация лишних портов (БД — никогда; приложению — только его порт).
++"""
++
++from __future__ import annotations
++
++import re
++from typing import Any
++
++APP_SERVICE = "app"
++DB_SERVICE = "db"
++# Единственный порт контейнера, который разрешено публиковать на хост.
++ALLOWED_PUBLISHED = {APP_SERVICE: {8000}}
++# Служебные (разовые) сервисы: restart "no" и healthcheck не требуются.
++ONE_SHOT_RESTART = {"no", None}
++
++_SECRET_NAME = re.compile(
++    r"(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|CREDENTIAL)", re.IGNORECASE
++)
++_SECRET_FILES = re.compile(
++    r"(^|[\s/\"'])(\.env(\.[\w.-]+)?|[\w.-]*\.pem|[\w.-]*\.key|id_rsa[\w.-]*)"
++    r"($|[\s\"'])",
++    re.IGNORECASE,
++)
++
++
++def _logical_lines(dockerfile: str) -> list[str]:
++    """Строки Dockerfile без комментариев, с объединёнными переносами `\\`."""
++    lines: list[str] = []
++    buffer = ""
++    for raw in dockerfile.splitlines():
++        stripped = raw.strip()
++        if not buffer and (not stripped or stripped.startswith("#")):
++            continue
++        if stripped.endswith("\\"):
++            buffer += stripped[:-1] + " "
++            continue
++        lines.append((buffer + stripped).strip())
++        buffer = ""
++    if buffer:
++        lines.append(buffer.strip())
++    return lines
++
++
++def _image_problem(image: str, where: str) -> str | None:
++    """Нарушение, если у образа нет явной версии или версия latest."""
++    if "@sha256:" in image:  # закрепление по digest — самый строгий вариант
++        return None
++    name = image.rsplit("/", 1)[-1]
++    if ":" not in name:
++        return f"{where}: образ '{image}' без тега (по умолчанию это latest)"
++    tag = name.split(":", 1)[1]
++    if tag.lower() == "latest":
++        return f"{where}: образ '{image}' использует тег latest"
++    return None
++
++
++def check_dockerfile(dockerfile: str) -> list[str]:
++    problems: list[str] = []
++    lines = _logical_lines(dockerfile)
++
++    stages: set[str] = set()
++    for line in lines:
++        match = re.match(
++            r"FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?$",
++            line,
++            re.IGNORECASE,
++        )
++        if not match:
++            continue
++        image, alias = match.group(1), match.group(2)
++        if image in stages or image.lower() == "scratch" or "$" in image:
++            pass  # промежуточный этап сборки / scratch / образ из ARG
++        else:
++            issue = _image_problem(image, "Dockerfile FROM")
++            if issue:
++                problems.append(issue)
++        if alias:
++            stages.add(alias)
++
++    users = [
++        line.split(None, 1)[1].strip()
++        for line in lines
++        if re.match(r"USER\s+\S+", line, re.IGNORECASE)
++    ]
++    if not users:
++        problems.append("Dockerfile: нет инструкции USER — процесс будет от root")
++    else:
++        final_user = users[-1].split(":", 1)[0].strip().lower()
++        if final_user in {"root", "0"}:
++            problems.append("Dockerfile: итоговый USER — root")
++
++    healthchecks = [
++        line for line in lines if re.match(r"HEALTHCHECK\b", line, re.IGNORECASE)
++    ]
++    if not healthchecks:
++        problems.append("Dockerfile: нет инструкции HEALTHCHECK")
++    elif any(
++        re.match(r"HEALTHCHECK\s+NONE\b", line, re.IGNORECASE) for line in healthchecks
++    ):
++        problems.append("Dockerfile: HEALTHCHECK NONE отключает проверку здоровья")
++
++    for line in lines:
++        keyword = line.split(None, 1)[0].upper() if line.split() else ""
++        if keyword in {"ENV", "ARG"}:
++            body = line.split(None, 1)[1] if len(line.split(None, 1)) > 1 else ""
++            # ENV A=1 B=2 / ENV A 1 / ARG A=1 / ARG A
++            pairs = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)(?:=(\S*))?", body)
++            for name, value in pairs:
++                if _SECRET_NAME.search(name) and value not in {"", None}:
++                    problems.append(
++                        f"Dockerfile: секрет в образе — {keyword} {name} со значением"
++                    )
++                elif keyword == "ARG" and _SECRET_NAME.search(name):
++                    problems.append(
++                        f"Dockerfile: ARG {name} попадёт в историю образа — "
++                        "секреты передаются только при запуске"
++                    )
++        if keyword in {"COPY", "ADD"} and _SECRET_FILES.search(line):
++            problems.append(f"Dockerfile: в образ копируется секретный файл: {line}")
++    return problems
++
++
++def check_dockerignore(text: str) -> list[str]:
++    """В .dockerignore обязаны быть исключения для секретов и служебных папок."""
++    entries = {line.strip() for line in text.splitlines() if line.strip()}
++    required = {
++        ".env": "файл с секретами",
++        ".git": "история репозитория",
++        "backups": "резервные копии БД",
++    }
++    problems = [
++        f".dockerignore: нет записи '{entry}' ({why})"
++        for entry, why in required.items()
++        if entry not in entries
++    ]
++    if ".env.*" not in entries:
++        problems.append(
++            ".dockerignore: нет записи '.env.*' (варианты файла с секретами)"
++        )
++    return problems
++
++
++def _published_container_ports(ports: list[Any]) -> list[int]:
++    result: list[int] = []
++    for item in ports or []:
++        if isinstance(item, dict):
++            target = item.get("target")
++            if target is not None:
++                result.append(int(target))
++            continue
++        # "127.0.0.1:8000:8000", "8000:8000", "8000", "8000/tcp"
++        text = str(item).split("/", 1)[0]
++        result.append(int(text.rsplit(":", 1)[-1]))
++    return result
++
++
++def check_compose(compose: dict[str, Any]) -> list[str]:
++    problems: list[str] = []
++    services: dict[str, Any] = compose.get("services") or {}
++    networks: dict[str, Any] = compose.get("networks") or {}
++    volumes: dict[str, Any] = compose.get("volumes") or {}
++
++    for required in (APP_SERVICE, DB_SERVICE):
++        if required not in services:
++            problems.append(f"compose: нет сервиса '{required}'")
++
++    for name, svc in services.items():
++        svc = svc or {}
++        where = f"compose[{name}]"
++
++        image = svc.get("image")
++        if image:
++            issue = _image_problem(image, where)
++            if issue:
++                problems.append(issue)
++        else:
++            problems.append(f"{where}: не задан image с закреплённой версией")
++
++        user = str(svc.get("user", "")).split(":", 1)[0].strip().lower()
++        if user in {"root", "0"}:
++            problems.append(f"{where}: запуск от root (user: {svc.get('user')})")
++        if svc.get("privileged"):
++            problems.append(f"{where}: privileged: true")
++        if svc.get("network_mode") == "host":
++            problems.append(f"{where}: network_mode: host")
++
++        one_shot = str(svc.get("restart", "no")) == "no" and name != DB_SERVICE
++        health = svc.get("healthcheck")
++        if not one_shot:
++            if not health:
++                problems.append(f"{where}: нет healthcheck")
++            elif health.get("disable") or str(health.get("test", "")).strip() in (
++                "NONE",
++                "['NONE']",
++            ):
++                problems.append(f"{where}: healthcheck отключён")
++            elif isinstance(health.get("test"), list) and health["test"][:1] == [
++                "NONE"
++            ]:
++                problems.append(f"{where}: healthcheck отключён (test: NONE)")
++
++        for limit in ("mem_limit", "cpus", "pids_limit"):
++            if limit not in svc:
++                problems.append(f"{where}: не задан лимит ресурсов {limit}")
++
++        published = _published_container_ports(svc.get("ports", []))
++        allowed = ALLOWED_PUBLISHED.get(name, set())
++        extra = sorted(set(published) - allowed)
++        if extra:
++            problems.append(f"{where}: опубликованы лишние порты {extra}")
++        if svc.get("expose") and name == DB_SERVICE and published:
++            problems.append(f"{where}: порты БД опубликованы")
++
++        env = svc.get("environment") or {}
++        if isinstance(env, list):
++            env = dict(
++                item.split("=", 1) if "=" in item else (item, "") for item in env
++            )
++        for key, value in env.items():
++            if _SECRET_NAME.search(str(key)) or str(key) == "DATABASE_URL":
++                text = str(value)
++                if text and not ("${" in text):
++                    problems.append(
++                        f"{where}: значение {key} записано литералом — "
++                        "используйте ${ПЕРЕМЕННАЯ} из .env.compose"
++                    )
++
++    # БД: данные в named volume, сеть только внутренняя.
++    db = services.get(DB_SERVICE) or {}
++    data_mounts = [
++        str(v) for v in db.get("volumes", []) if "/var/lib/postgresql" in str(v)
++    ]
++    if not data_mounts:
++        problems.append("compose[db]: данные PostgreSQL не вынесены в volume")
++    for mount in data_mounts:
++        source = mount.split(":", 1)[0]
++        if source.startswith((".", "/", "~")):
++            problems.append("compose[db]: данные в bind-mount, нужен named volume")
++        elif source not in volumes:
++            problems.append(f"compose: volume '{source}' не объявлен в volumes")
++
++    db_nets = db.get("networks") or []
++    if not db_nets:
++        problems.append("compose[db]: БД должна быть в явно заданной внутренней сети")
++    for net in db_nets if not isinstance(db_nets, dict) else db_nets.keys():
++        cfg = networks.get(net) or {}
++        if not cfg.get("internal"):
++            problems.append(f"compose[db]: сеть '{net}' должна быть internal: true")
++
++    app = services.get(APP_SERVICE) or {}
++    depends = app.get("depends_on") or {}
++    if not isinstance(depends, dict) or (
++        (depends.get(DB_SERVICE) or {}).get("condition") != "service_healthy"
++    ):
++        problems.append(
++            "compose[app]: app должен ждать db с condition: service_healthy"
++        )
++    return problems
++
++
++def check_requirements_sync(full: str, runtime: str) -> list[str]:
++    """Версии в requirements-runtime.txt совпадают с requirements.txt."""
++
++    def parse(text: str) -> dict[str, str]:
++        pins: dict[str, str] = {}
++        for line in text.splitlines():
++            line = line.split("#", 1)[0].strip()
++            if not line:
++                continue
++            name, _, version = line.partition("==")
++            pins[name.strip().lower()] = version.strip()
++        return pins
++
++    full_pins, runtime_pins = parse(full), parse(runtime)
++    problems = []
++    for name, version in runtime_pins.items():
++        if not version:
++            problems.append(f"requirements-runtime.txt: {name} без точной версии (==)")
++        elif full_pins.get(name) != version:
++            problems.append(
++                f"requirements-runtime.txt: {name}=={version}, "
++                f"а в requirements.txt {full_pins.get(name)!r}"
++            )
++    return problems
++
++
++def check_secrets_not_tracked(tracked_files: list[str]) -> list[str]:
++    """Файлы с секретами (.env, .env.compose, ключи) не лежат в git."""
++    allowed = {".env.example", ".env.compose.example"}
++    problems = []
++    for path in tracked_files:
++        base = path.rsplit("/", 1)[-1]
++        if base in allowed:
++            continue
++        if (
++            base == ".env"
++            or base.startswith(".env.")
++            or base.endswith((".pem", ".key"))
++        ):
++            problems.append(f"git: в репозитории лежит файл с секретами {path}")
++    return problems
+diff --git a/tests/unit/test_container_policy.py b/tests/unit/test_container_policy.py
+new file mode 100644
+index 0000000..491d7df
+--- /dev/null
++++ b/tests/unit/test_container_policy.py
+@@ -0,0 +1,153 @@
++"""Тесты правил контейнерного окружения (ЛР4, п.13).
++
++Реальные файлы репозитория обязаны проходить все правила, а каждое нарушение
++из списка запретов (latest, root, секреты в образе, отключённый healthcheck,
++лишние порты и др.) обязано обнаруживаться — это проверка самих проверок.
++Docker для этих тестов не нужен.
++"""
++
++import copy
++from pathlib import Path
++
++import pytest
++import yaml
++
++from scripts import container_policy as policy
++
++ROOT = Path(__file__).resolve().parents[2]
++DOCKERFILE = (ROOT / "Dockerfile").read_text(encoding="utf-8")
++DOCKERIGNORE = (ROOT / ".dockerignore").read_text(encoding="utf-8")
++COMPOSE = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
++
++
++def test_repository_files_pass_all_policies():
++    full = (ROOT / "requirements.txt").read_text(encoding="utf-8")
++    runtime = (ROOT / "requirements-runtime.txt").read_text(encoding="utf-8")
++    assert policy.check_dockerfile(DOCKERFILE) == []
++    assert policy.check_dockerignore(DOCKERIGNORE) == []
++    assert policy.check_compose(COMPOSE) == []
++    assert policy.check_requirements_sync(full, runtime) == []
++
++
++@pytest.mark.parametrize(
++    ("old", "new", "expected"),
++    [
++        ("FROM python:3.11.13-slim-bookworm", "FROM python:latest", "latest"),
++        ("FROM python:3.11.13-slim-bookworm", "FROM python", "без тега"),
++        ("USER 10001:10001\n", "", "нет инструкции USER"),
++        ("USER 10001:10001", "USER root", "root"),
++        ("USER 10001:10001", "USER 0", "root"),
++        ("HEALTHCHECK --interval", "#HEALTHCHECK --interval", "HEALTHCHECK"),
++        ("ENV PYTHONDONTWRITEBYTECODE=1", "ENV DB_PASSWORD=hunter2", "секрет"),
++        ("ENV PYTHONDONTWRITEBYTECODE=1", "ARG API_TOKEN", "ARG"),
++        ("COPY app ./app", "COPY .env ./", "секретный файл"),
++    ],
++)
++def test_dockerfile_violations_are_detected(old, new, expected):
++    assert old in DOCKERFILE
++    problems = policy.check_dockerfile(DOCKERFILE.replace(old, new, 1))
++    assert any(expected in problem for problem in problems), problems
++
++
++def test_dockerfile_healthcheck_none_is_detected():
++    broken = DOCKERFILE + "\nHEALTHCHECK NONE\n"
++    assert any("NONE" in p for p in policy.check_dockerfile(broken))
++
++
++def test_multistage_build_stage_reference_is_not_treated_as_image():
++    text = (
++        "FROM python:3.11.13-slim AS build\nFROM build\n"
++        "USER 1000\nHEALTHCHECK CMD true\n"
++    )
++    assert policy.check_dockerfile(text) == []
++
++
++def _compose(mutate):
++    data = copy.deepcopy(COMPOSE)
++    mutate(data)
++    return policy.check_compose(data)
++
++
++@pytest.mark.parametrize(
++    ("mutate", "expected"),
++    [
++        (lambda d: d["services"]["db"].update(image="postgres:latest"), "latest"),
++        (lambda d: d["services"]["db"].update(image="postgres"), "без тега"),
++        (lambda d: d["services"]["app"].update(user="root"), "root"),
++        (lambda d: d["services"]["app"].update(user="0:0"), "root"),
++        (lambda d: d["services"]["db"].update(ports=["5432:5432"]), "лишние порты"),
++        (
++            lambda d: d["services"]["app"].update(ports=["8000:8000", "9000:9000"]),
++            "лишние порты",
++        ),
++        (
++            lambda d: d["services"]["app"].update(healthcheck={"disable": True}),
++            "healthcheck отключён",
++        ),
++        (
++            lambda d: d["services"]["db"].update(healthcheck={"test": ["NONE"]}),
++            "healthcheck отключён",
++        ),
++        (lambda d: d["services"]["app"].pop("healthcheck"), "нет healthcheck"),
++        (lambda d: d["services"]["db"].pop("mem_limit"), "mem_limit"),
++        (lambda d: d["services"]["app"].pop("cpus"), "cpus"),
++        (lambda d: d["services"]["app"].update(privileged=True), "privileged"),
++        (lambda d: d["services"]["app"].update(network_mode="host"), "host"),
++        (
++            lambda d: d["services"]["db"]["environment"].update(
++                POSTGRES_PASSWORD="hunter2"
++            ),
++            "литералом",
++        ),
++        (
++            lambda d: d["services"]["app"]["environment"].update(
++                DATABASE_URL="postgresql://u:p@db/x"
++            ),
++            "литералом",
++        ),
++        (lambda d: d["networks"]["backend"].update(internal=False), "internal"),
++        (
++            lambda d: d["services"]["db"].update(
++                volumes=["./data:/var/lib/postgresql/data"]
++            ),
++            "bind-mount",
++        ),
++        (lambda d: d["services"]["db"].pop("volumes"), "volume"),
++        (
++            lambda d: d["services"]["app"].update(depends_on={"db": {}}),
++            "service_healthy",
++        ),
++    ],
++)
++def test_compose_violations_are_detected(mutate, expected):
++    problems = _compose(mutate)
++    assert any(expected in problem for problem in problems), problems
++
++
++def test_one_shot_migrate_service_does_not_need_healthcheck():
++    assert "healthcheck" not in COMPOSE["services"]["migrate"]
++    assert policy.check_compose(COMPOSE) == []
++
++
++def test_dockerignore_must_exclude_secrets_and_git():
++    broken = DOCKERIGNORE.replace(".env\n", "", 1)
++    problems = policy.check_dockerignore(broken)
++    assert any("'.env'" in p for p in problems)
++    assert any(
++        "'.git'" in p for p in policy.check_dockerignore("backups\n.env\n.env.*\n")
++    )
++
++
++def test_requirements_must_stay_in_sync():
++    full = "fastapi==1.0.0\nuvicorn[standard]==2.0.0\n"
++    assert policy.check_requirements_sync(full, "fastapi==1.0.0\n") == []
++    assert policy.check_requirements_sync(full, "fastapi==1.0.1\n")
++    assert policy.check_requirements_sync(full, "fastapi\n")
++    assert policy.check_requirements_sync(full, "unknown==1\n")
++
++
++def test_secret_files_must_not_be_tracked_in_git():
++    ok = [".env.example", ".env.compose.example", "app/main.py"]
++    assert policy.check_secrets_not_tracked(ok) == []
++    bad = policy.check_secrets_not_tracked([".env", ".env.compose", "keys/server.pem"])
++    assert len(bad) == 3
