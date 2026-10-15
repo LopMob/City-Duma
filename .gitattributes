@@ -1,1 +1,6 @@
 ﻿*.sh text eol=lf
+
+# ЛР4: Docker читает эти файлы внутри Linux-контейнеров и в CI — всегда LF
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+compose.yaml text eol=lf
