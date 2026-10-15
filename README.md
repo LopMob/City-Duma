@@ -76,7 +76,26 @@ make migrate   # применение миграций
 make backup    # резервная копия БД (pg_dump)
 make restore FILE=backups/duma_<ts>.sql   # восстановление (psql)
 make verify    # quality + sast + test, обязателен перед PR
+make container-check   # проверка контейнерного окружения (Docker), см. ниже
 ```
+
+## Запуск в контейнерах (ЛР4)
+
+Приложение и PostgreSQL запускаются в Docker Compose: БД во внутренней сети без
+публикации порта, данные в volume, миграции отдельным контейнером, приложение
+от непривилегированного пользователя. Нужен Docker (Docker Desktop / Engine).
+
+```
+make container-up          # создать .env.compose (случайный пароль), собрать и запустить
+make container-logs        # логи
+make container-backup      # резервная копия БД из контейнера
+make container-restore-new FILE=backups/container_duma_<ts>.sql   # восстановить в НОВЫЙ volume
+make container-check       # автоматическая проверка окружения и запретов
+make container-down        # остановить (данные в volume сохраняются)
+```
+
+Приложение: `http://localhost:8000` (только с этого компьютера). Подробности,
+лимиты ресурсов и сценарий показа — [`docs/CONTAINER.md`](docs/CONTAINER.md).
 
 ## Git-процесс
 
