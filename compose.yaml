@@ -1,0 +1,102 @@
+# ЛР4: приложение + PostgreSQL в контейнерах.
+# Запуск: make container-init (один раз) и make container-up.
+# Секреты берутся из .env.compose (в git не попадает), здесь их нет.
+name: city-duma
+
+services:
+  db:
+    image: postgres:16.10-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?задайте POSTGRES_USER в .env.compose}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env.compose}
+      POSTGRES_DB: ${POSTGRES_DB:?задайте POSTGRES_DB в .env.compose}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    # Порт БД наружу НЕ публикуется: к ней ходит только приложение
+    # по внутренней сети backend (адрес db:5432).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    # Лимиты: 512 МиБ хватает PostgreSQL на учебных объёмах данных
+    # (shared_buffers по умолчанию 128 МиБ + соединения), 1 CPU, не больше 200 процессов.
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 200
+    # PostgreSQL по SIGINT делает «быструю» остановку с сохранением данных.
+    stop_grace_period: 30s
+
+  migrate:
+    # Разовый контейнер: накатывает миграции Alembic и завершается.
+    image: city-duma:0.4.0
+    build:
+      context: .
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
+
+  app:
+    image: city-duma:0.4.0
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ENVIRONMENT: ${ENVIRONMENT:-container}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      # Единственный опубликованный порт: HTTP приложения, по умолчанию только
+      # на localhost хоста (APP_BIND=0.0.0.0 открывает его в сеть осознанно).
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # Лимиты: приложение (uvicorn + SQLAlchemy) в покое занимает ~100 МиБ,
+    # 256 МиБ — запас на нагрузку; 0.5 CPU и 100 процессов — защита от «съедания» хоста.
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
+    # Docker шлёт SIGTERM, uvicorn завершает запросы и выходит с кодом 0;
+    # если за 20 секунд не вышел — SIGKILL.
+    stop_grace_period: 20s
+
+networks:
+  # internal: true — у сети нет выхода наружу и входа снаружи; здесь живёт БД.
+  backend:
+    internal: true
+  frontend: {}
+
+volumes:
+  pgdata:
