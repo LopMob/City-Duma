@@ -26,7 +26,7 @@ quality → test → migrations → backup → security → build → container 
 | build | `build:image` | `docker build` | сборка образа по `Dockerfile` | `image.tar` (1 день) |
 | container | `container-check` | `make container-check` | правила ЛР4: не latest, не root, нет секретов в образе, healthcheck, порты, лимиты, сохранность данных, SIGTERM, восстановление в новый volume | лог job |
 | container | `image-scan` | trivy (как `make image-scan`) | уязвимости HIGH/CRITICAL с исправлением и секреты в собранном образе | `reports/trivy.json` |
-| guard | `guard:critical-files` | `make guard GUARD_ARGS=--ci` | изменения критических файлов согласованы; нет ослабления проверок | лог job |
+| guard | `guard:critical-files` | `scripts/ci_guard.py --ci` из **main** (локально — `make guard`) | изменения критических файлов согласованы; нет ослабления проверок | лог job |
 | publish | `publish:image` | `docker push` | — | образ `<registry>/<проект>:<short SHA>` |
 
 Все отчёты сохраняются с `artifacts: when: always` — и при успехе, и при

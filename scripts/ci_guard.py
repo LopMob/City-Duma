@@ -19,9 +19,10 @@ main) и сообщает о двух видах находок:
       В merge request любая находка требует одобрения владельца из CODEOWNERS,
       который не автор MR, данного ПОСЛЕ последнего push. Одобрения читаются
       через API токеном GUARD_API_TOKEN (scope read_api). Нет токена или API
-      недоступно — job падает (fail closed). Скрипт сначала берёт свою версию
-      из целевой ветки и выполняет её: MR не может «подкрутить» проверку под
-      себя — правка guard вступает в силу только после слияния.
+      недоступно — job падает (fail closed). Job CI запускает копию этого
+      скрипта из ЦЕЛЕВОЙ ветки (git show origin/main:scripts/ci_guard.py),
+      а не из ветки автора: MR не может «подкрутить» проверку под себя —
+      правка guard вступает в силу только после слияния.
 
 Скрипт не импортирует код приложения: нужны только стандартная библиотека,
 git и PyYAML.
@@ -38,7 +39,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import tokenize
 import urllib.error
 import urllib.parse
@@ -913,28 +913,17 @@ def resolve_ci_base(env: dict[str, str]) -> tuple[str | None, str | None, str]:
     return base or None, f"origin/{default}", f"ветка {branch} -> {default}"
 
 
-def reexec_trusted(trusted_ref: str | None) -> None:
-    """В CI выполняется версия guard из целевой ветки, а не из ветки автора."""
-    if os.environ.get("CI_GUARD_TRUSTED") == "1" or not trusted_ref:
+def note_modified_guard(trusted_ref: str | None) -> None:
+    """Сообщает, если ветка меняет сам guard: в CI выполняется версия из main."""
+    running = Path(__file__).resolve()
+    branch_copy = Path(SELF_PATH).resolve()
+    if running == branch_copy or not trusted_ref:
         return
-    trusted = git_show(trusted_ref, SELF_PATH)
-    if trusted is None:
-        print(f"В {trusted_ref} ещё нет {SELF_PATH} — используется версия ветки.")
-        return
-    current = read_head(SELF_PATH)
-    if trusted == current:
-        return
-    print(
-        f"{SELF_PATH} изменён в этой ветке — выполняется доверенная версия из "
-        f"{trusted_ref}; новая версия заработает после слияния."
-    )
-    with tempfile.NamedTemporaryFile(
-        "w", suffix="_ci_guard.py", delete=False, encoding="utf-8"
-    ) as handle:
-        handle.write(trusted)
-    os.environ["CI_GUARD_TRUSTED"] = "1"
-    sys.stdout.flush()
-    os.execv(sys.executable, [sys.executable, handle.name, *sys.argv[1:]])
+    if read_head(SELF_PATH) != running.read_text(encoding="utf-8"):
+        print(
+            f"{SELF_PATH} изменён в этой ветке — выполняется доверенная версия из "
+            f"{trusted_ref}; новая версия заработает после слияния."
+        )
 
 
 def run_local(base: str) -> int:
@@ -955,7 +944,7 @@ def run_local(base: str) -> int:
 def run_ci(env: dict[str, str]) -> int:
     os.chdir(git("rev-parse", "--show-toplevel").strip())
     base, trusted_ref, description = resolve_ci_base(env)
-    reexec_trusted(trusted_ref)
+    note_modified_guard(trusted_ref)
     print(f"Режим CI: {description}")
     if base is None:
         print(

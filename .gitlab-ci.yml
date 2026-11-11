@@ -321,7 +321,15 @@ guard:critical-files:
     GIT_DEPTH: "0"
   script:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
-    - make guard GUARD_ARGS=--ci
+    # Выполняется guard из ЦЕЛЕВОЙ ветки, а не из ветки автора MR: иначе MR мог
+    # бы сам себе «починить» проверку. Копия из ветки — только при первом
+    # внедрении, когда в целевой ветке guard ещё нет.
+    - TARGET="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-$CI_DEFAULT_BRANCH}"
+    - git fetch -q --no-tags origin "+refs/heads/$TARGET:refs/remotes/origin/$TARGET"
+    - >-
+      git show "origin/$TARGET:scripts/ci_guard.py" > /tmp/ci_guard.py ||
+      cp scripts/ci_guard.py /tmp/ci_guard.py
+    - python /tmp/ci_guard.py --ci
 
 # ---------------------------------------------------------------- publish --
 
