@@ -32,7 +32,25 @@ quality → test → migrations → backup → security → build → container 
 Все отчёты сохраняются с `artifacts: when: always` — и при успехе, и при
 падении (как раз тогда они нужнее всего).
 
-## 2. Когда запускается pipeline (п.3)
+## 2. Git-процесс и CI
+
+Команда работает по GitFlow: в `main` нет прямых коммитов. Любое изменение —
+ветка `feature/...` (или `fix/...`, `docs/...`) от `main` → push → merge
+request в `main` → проверки → слияние. CI встроен в каждый шаг:
+
+```
+feature/* ──push──> pipeline ветки ──MR──> pipeline MR ──merge──> pipeline main ──> образ :<SHA>
+                    (раннее                (обязательный барьер:     (контроль после
+                    предупреждение)        без зелёного — merge      слияния, публикация)
+                                           недоступен)
+```
+
+Процесс закреплён настройками GitLab, а не только договорённостью: `main`
+защищена (push — No one, merge — Maintainers), merge только при зелёном
+pipeline, а guard на `main` дополнительно проверяет, что изменения
+критических файлов пришли через MR.
+
+## 2а. Когда запускается pipeline (п.3)
 
 Правила `workflow` в `.gitlab-ci.yml`:
 
@@ -183,6 +201,8 @@ git push gitlab --all
 git push gitlab --tags
 ```
 
+Это разовая начальная загрузка истории в пустой проект — до того, как
+`main` станет защищённой (шаг 6). Дальше в `main` попадают только слияния MR.
 Чтобы GitHub оставался актуальным, в GitLab: *Settings → Repository →
 Mirroring repositories* → push-зеркало на GitHub (Free, нужен GitHub PAT).
 Участников добавьте в проект (*Manage → Members*): кто будет одобрять
@@ -238,7 +258,8 @@ Reporter, scope `read_api`, срок до конца семестра.
 
 **6. Защищённая ветка и теги.** *Settings → Repository → Protected branches*:
 `main` — Allowed to merge: Maintainers; Allowed to push and merge: No one;
-Allow force push: выкл. *Protected tags*: `v*` — Maintainers.
+Allow force push: выкл. Так GitFlow соблюдается технически: прямой
+`git push` в `main` отклоняется, изменения приходят только слиянием MR. *Protected tags*: `v*` — Maintainers.
 
 **7. Правила MR.** *Settings → Merge requests*: Merge checks → **Pipelines
 must succeed**, **All threads must be resolved**; шаблон описания MR

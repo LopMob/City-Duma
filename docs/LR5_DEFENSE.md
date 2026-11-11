@@ -8,7 +8,7 @@
 |---|---|---|
 | 1 | Выбор CI-системы | GitLab CI/CD (self-managed), `.gitlab-ci.yml` |
 | 2 | Подключение репозитория и registry | проект в GitLab + push-зеркало на GitHub; Container Registry GitLab или `registry:2` (CI.md §10) |
-| 3 | Запуск на push, MR, изменение main | `workflow: rules` (CI.md §2) |
+| 3 | Запуск на push, MR, изменение main (GitFlow: feature → MR → main) | `workflow: rules` (CI.md §2а) |
 | 4 | Те же команды, что локально | jobs вызывают `make quality / test / migrate / migrate-check / backup-check / sast / deps-audit / container-check / guard` (CI.md §1, §3) |
 | 5 | Стадии: стиль, тесты, миграции, backup, безопасность, контейнер, сборка, публикация | `stages:` — 9 стадий |
 | 6 | Отдельная тестовая БД | сервис `postgres` на каждый job + базы `*_test` (CI.md §4) |
@@ -32,16 +32,17 @@
 3. В команде есть второй участник с доступом, чтобы одобрить MR (или
    второй тестовый пользователь).
 
-Каждый сценарий — отдельная ветка от `main` и MR. Ветки после показа
-закрываются без слияния.
+Каждый сценарий идёт по нашему GitFlow-процессу: ветка `feature/...` от
+`main` → push → MR в `main`. Прямых коммитов в `main` нет ни в одном
+сценарии. Дефектные MR после показа закрываются без слияния, ветки удаляются.
 
 ## A. Корректное изменение проходит CI (п.16)
 
 ```
-git switch -c demo/ok main
+git switch -c feature/demo-ok main
 # небольшое безопасное изменение, например текст в docs/API.md
 git commit -am "docs: уточнение описания API"
-git push gitlab demo/ok        # открыть MR в GitLab
+git push gitlab feature/demo-ok        # открыть MR в GitLab
 ```
 
 Показать: все jobs зелёные, `guard:critical-files` — «критические файлы не
@@ -54,9 +55,9 @@ git push gitlab demo/ok        # открыть MR в GitLab
 `required = total_members // 2 + 1` на `required = total_members // 2`.
 
 ```
-git switch -c demo/broken-logic main
+git switch -c feature/demo-broken-logic main
 git commit -am "change quorum rule"
-git push gitlab demo/broken-logic
+git push gitlab feature/demo-broken-logic
 ```
 
 Показать: job `test` красный (тесты кворума в `tests/unit/test_quorum_boundaries.py`
@@ -101,8 +102,8 @@ def downgrade() -> None:
 
 ```
 python -c "import secrets,string; a=string.ascii_letters+string.digits; print('GITHUB_TOKEN = \"ghp_' + ''.join(secrets.choice(a) for _ in range(36)) + '\"')" > app/demo_settings.py
-git switch -c demo/secret main && git add app/demo_settings.py
-git commit -m "add settings" && git push gitlab demo/secret
+git switch -c feature/demo-secret main && git add app/demo_settings.py
+git commit -m "add settings" && git push gitlab feature/demo-secret
 ```
 
 Показать: job `secrets` красный, в логе — правило `github-pat`, файл и
@@ -146,7 +147,9 @@ docker pull <registry>/<группа>/city-duma:<short SHA из сценария
    решение осознанное и записано в MR.
 4. Новый push после одобрения → guard снова красный («одобрение дано до
    последнего push»).
-5. *Protected branches*: в `main` нельзя push напрямую; *General pipelines*:
+5. *Protected branches*: в `main` нельзя push напрямую (`git push gitlab main`
+   отклоняется — remote: You are not allowed to push code to protected
+   branches), попасть в `main` можно только слиянием MR; *General pipelines*:
    конфигурация берётся из `main`, поэтому удаление job guard в MR не
    влияет на pipeline этого MR.
 
