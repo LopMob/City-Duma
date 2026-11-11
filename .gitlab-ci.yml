@@ -1,0 +1,351 @@
+# ЛР5: Continuous Integration приложения «Городская Дума» (GitLab CI/CD).
+#
+# Принцип: CI выполняет ТЕ ЖЕ make-команды, что разработчик запускает локально
+# (make quality, make test, make migrate-check, make container-check, ...).
+# Pipeline — независимый обязательный барьер: образ публикуется в registry
+# только после успеха ВСЕХ проверок (стадия publish последняя, без needs).
+#
+# Файл критический (.gitlab/CODEOWNERS, make guard): удалить job, сделать его
+# необязательным (allow_failure, when: manual) или вычеркнуть команду нельзя
+# без одобрения владельца. Подробное описание — docs/CI.md.
+
+workflow:
+  name: "$CI_COMMIT_REF_NAME: $CI_COMMIT_TITLE"
+  rules:
+    # 1) merge request: создание MR и каждый push в его ветку
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # 2) push в ветку, по которой уже открыт MR, — не дублируем pipeline
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    # 3) push в любую ветку (в т.ч. изменение main после слияния)
+    - if: $CI_COMMIT_BRANCH
+    # 4) теги версий (v0.5.0 и т.д.)
+    - if: $CI_COMMIT_TAG
+  auto_cancel:
+    on_new_commit: interruptible
+
+stages:
+  - quality      # стиль и линтер
+  - test         # unit + интеграционные тесты, покрытие
+  - migrations   # миграции на чистой БД, откат/накат, БД с данными
+  - backup       # резервная копия -> повреждение -> восстановление
+  - security     # SAST, зависимости, секреты
+  - build        # сборка образа приложения
+  - container    # make container-check и анализ образа
+  - guard        # защита критических файлов приёмки
+  - publish      # публикация образа в registry (только если всё выше прошло)
+
+variables:
+  # Версии закреплены точно (как в ЛР4): те же образы, что в Dockerfile и compose.yaml.
+  PYTHON_IMAGE: "python:3.11.13-slim-bookworm"
+  POSTGRES_IMAGE: "postgres:16.10-alpine"
+  POSTGRES_CLIENT_IMAGE: "postgres:16.10-bookworm"
+  DOCKER_VERSION: "29.9.3"
+  GITLEAKS_IMAGE: "zricethezav/gitleaks:v8.30.1"
+  TRIVY_IMAGE: "aquasec/trivy:0.71.2"
+  # Кеш зависимостей внутри каталога проекта — его сохраняет cache: GitLab.
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  TRIVY_CACHE_DIR: "$CI_PROJECT_DIR/.cache/trivy"
+  REPORTS_DIR: "reports"
+  # Реестр образов. По умолчанию — встроенный Container Registry GitLab
+  # (CI_REGISTRY_PASSWORD — одноразовый токен job, его выдаёт сам GitLab).
+  # Для своего registry:2 задайте REGISTRY, REGISTRY_IMAGE, REGISTRY_USER,
+  # REGISTRY_PASSWORD в Settings > CI/CD > Variables (Masked) — они важнее этих.
+  REGISTRY: "$CI_REGISTRY"
+  REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE"
+  REGISTRY_USER: "$CI_REGISTRY_USER"
+  REGISTRY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+  # Локальный тег образа внутри pipeline (до публикации).
+  BUILD_IMAGE: "city-duma:$CI_COMMIT_SHORT_SHA"
+
+default:
+  interruptible: true
+
+# ---------------------------------------------------------------- шаблоны --
+
+# Python-окружение: venv и кеш pip переиспользуются между pipeline, пока
+# не изменился requirements.txt (ключ кеша — хеш файла).
+.python:
+  image: $PYTHON_IMAGE
+  dependencies: []
+  cache:
+    key:
+      files: [requirements.txt]
+      prefix: py311
+    paths:
+      - .venv/
+      - .cache/pip/
+  before_script:
+    - &apt_tools apt-get update -qq && apt-get install -y -qq --no-install-recommends make git > /dev/null
+    - &venv python3 -m venv .venv && . .venv/bin/activate && pip install -q -r requirements.txt
+
+# Отдельная тестовая БД: свой одноразовый сервис PostgreSQL в каждом job.
+# Пароль — из защищённой переменной CI_TEST_DB_PASSWORD (Masked), не из файла.
+.postgres:
+  services:
+    - name: $POSTGRES_IMAGE
+      alias: postgres
+  variables:
+    POSTGRES_DB: city_duma_ci
+    POSTGRES_USER: duma_ci
+    POSTGRES_PASSWORD: $CI_TEST_DB_PASSWORD
+    DATABASE_URL: "postgresql+psycopg2://duma_ci:${CI_TEST_DB_PASSWORD}@postgres:5432/city_duma_ci"
+    ENVIRONMENT: ci
+
+.require_db_password: &require_db_password >-
+  test -n "$CI_TEST_DB_PASSWORD" ||
+  { echo "Не задана переменная CI_TEST_DB_PASSWORD (Settings > CI/CD > Variables, Masked)"; exit 1; }
+
+# Docker-in-Docker с TLS: сборка образа и make container-check.
+# Runner должен быть зарегистрирован с privileged = true и volume /certs/client.
+.docker:
+  image: docker:${DOCKER_VERSION}-cli
+  dependencies: []
+  services:
+    - name: docker:${DOCKER_VERSION}-dind
+      alias: docker
+      # Если registry работает по HTTP (без TLS), раскомментируйте и укажите адрес:
+      # command: ["--insecure-registry=gitlab.local:5050"]
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+  before_script:
+    - &docker_wait for i in $(seq 1 30); do docker info > /dev/null 2>&1 && break; sleep 2; done; docker info > /dev/null
+
+# ---------------------------------------------------------------- quality --
+
+quality:
+  stage: quality
+  extends: .python
+  script:
+    - make quality
+  after_script:
+    - . .venv/bin/activate && make quality-report
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths: [reports/]
+    reports:
+      codequality: reports/gl-code-quality.json
+
+# ------------------------------------------------------------------- test --
+
+test:
+  stage: test
+  extends: [.python, .postgres]
+  variables:
+    # Тот же make test, к опциям pytest из pyproject.toml добавляется отчёт JUnit.
+    PYTEST_ADDOPTS: "--junitxml=reports/junit.xml"
+  before_script:
+    - *require_db_password
+    - *apt_tools
+    - *venv
+    - make db-wait
+  script:
+    - make test
+  coverage: '/^TOTAL.*\s(\d+(?:\.\d+)?)%/'
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths: [reports/, coverage.xml]
+    reports:
+      junit: reports/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+# ------------------------------------------------------------- migrations --
+
+migrations:
+  stage: migrations
+  extends: [.python, .postgres]
+  before_script:
+    - *require_db_password
+    - *apt_tools
+    - *venv
+    - make db-wait
+  script:
+    - make migrate         # как локально: чистая БД сервиса -> head
+    - make migrate-check   # одна голова, БД с данными, откат base -> head
+
+# ----------------------------------------------------------------- backup --
+
+backup:
+  stage: backup
+  extends: [.python, .postgres]
+  # pg_dump/psql 16 — той же версии, что сервер; python3.11 из Debian bookworm.
+  image: $POSTGRES_CLIENT_IMAGE
+  cache:
+    key:
+      files: [requirements.txt]
+      prefix: pg16-py311
+    paths:
+      - .venv/
+      - .cache/pip/
+  before_script:
+    - *require_db_password
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends make git python3 python3-venv > /dev/null
+    - *venv
+    - make db-wait
+  script:
+    - make migrate
+    - make reports-dir
+    - make backup OUTPUT=reports/backup_ci.sql
+    - make backup-check    # копия -> удаление и порча данных -> восстановление
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths: [reports/]
+
+# --------------------------------------------------------------- security --
+
+sast:
+  stage: security
+  extends: .python
+  script:
+    - make sast
+  after_script:
+    - . .venv/bin/activate && make sast-report
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths: [reports/]
+
+deps-audit:
+  stage: security
+  extends: .python
+  script:
+    - make deps-audit
+  after_script:
+    - . .venv/bin/activate && make deps-audit-report
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths: [reports/]
+
+secrets:
+  stage: security
+  image:
+    name: $GITLEAKS_IMAGE
+    entrypoint: [""]
+  dependencies: []
+  cache: []
+  variables:
+    GIT_DEPTH: "0"    # полная история: проверяются все новые коммиты, а не только последний
+  script:
+    - mkdir -p reports
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    # Какие коммиты новые: MR — от точки ответвления; ветка — то, чего нет в main.
+    - |
+      if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
+        git fetch -q origin "+refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:refs/remotes/origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+        RANGE="$CI_MERGE_REQUEST_DIFF_BASE_SHA..$CI_COMMIT_SHA"
+      elif [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ] && [ -n "$CI_COMMIT_BRANCH" ]; then
+        git fetch -q origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
+        RANGE="origin/$CI_DEFAULT_BRANCH..$CI_COMMIT_SHA"
+      else
+        RANGE="$CI_COMMIT_SHA"
+      fi
+      echo "Проверяемые коммиты: $RANGE"
+    - gitleaks dir --redact --verbose --config .gitleaks.toml --report-format json --report-path reports/gitleaks-tree.json .
+    - gitleaks git --redact --verbose --config .gitleaks.toml --log-opts="$RANGE" --report-format json --report-path reports/gitleaks-history.json .
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths: [reports/]
+
+# ------------------------------------------------------------------ build --
+
+build:image:
+  stage: build
+  extends: .docker
+  script:
+    # Метка revision связывает образ с коммитом; publish сверяет её перед push.
+    - >-
+      docker build --pull
+      --label "org.opencontainers.image.revision=$CI_COMMIT_SHA"
+      --label "org.opencontainers.image.source=$CI_PROJECT_URL"
+      -t "$BUILD_IMAGE" .
+    # Образ передаётся дальше артефактом: в registry он попадёт только в publish.
+    - docker save "$BUILD_IMAGE" -o image.tar
+  artifacts:
+    expire_in: 1 day
+    paths: [image.tar]
+
+# -------------------------------------------------------------- container --
+
+container-check:
+  stage: container
+  extends: .docker
+  variables:
+    # Порт приложения публикуется на сервисе dind, а не на localhost job-а.
+    CONTAINER_CHECK_HOST: docker
+  before_script:
+    - *docker_wait
+    - apk add --no-cache -q python3 py3-yaml make git
+    - command -v python > /dev/null || ln -s "$(command -v python3)" /usr/local/bin/python
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+  script:
+    - make container-check
+
+image-scan:
+  stage: container
+  image:
+    name: $TRIVY_IMAGE
+    entrypoint: [""]
+  dependencies: [build:image]
+  cache:
+    key: trivy-db
+    paths: [.cache/trivy/]
+  script:
+    - mkdir -p reports
+    - trivy image --input image.tar --format json --output reports/trivy.json --exit-code 0
+    # Барьер: уязвимости HIGH/CRITICAL, для которых есть исправление, и секреты в образе.
+    - trivy image --input image.tar --skip-db-update --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths: [reports/]
+
+# ------------------------------------------------------------------ guard --
+
+guard:critical-files:
+  stage: guard
+  extends: .python
+  # Стартует сразу (не ждёт тестов), но publish всё равно ждёт его результата.
+  needs: []
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - make guard GUARD_ARGS=--ci
+
+# ---------------------------------------------------------------- publish --
+
+publish:image:
+  stage: publish
+  extends: .docker
+  dependencies: [build:image]
+  # interruptible: false — начатую публикацию не прерывает новый коммит.
+  interruptible: false
+  script:
+    - >-
+      test -n "$REGISTRY_IMAGE" ||
+      { echo "Registry не настроен: включите Container Registry или задайте REGISTRY_* (docs/CI.md)"; exit 1; }
+    - docker load -i image.tar
+    - REVISION=$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$BUILD_IMAGE")
+    - >-
+      test "$REVISION" = "$CI_COMMIT_SHA" ||
+      { echo "Образ собран не из $CI_COMMIT_SHA (revision=$REVISION)"; exit 1; }
+    - echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin "$REGISTRY"
+    # Тег образа = короткий SHA коммита; для тега git дополнительно — версия.
+    - docker tag "$BUILD_IMAGE" "$REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - >-
+      if [ -n "$CI_COMMIT_TAG" ]; then
+      docker tag "$BUILD_IMAGE" "$REGISTRY_IMAGE:$CI_COMMIT_TAG" &&
+      docker push "$REGISTRY_IMAGE:$CI_COMMIT_TAG"; fi
+    - echo "Опубликован $REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
