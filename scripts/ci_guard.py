@@ -791,6 +791,48 @@ def _owner_matches(owner: str, user: dict, levels: dict[int, int]) -> bool:
     return owner.lstrip("@").lower() == user["username"].lower()
 
 
+# Системные заметки MR: GitLab пишет их при каждом push и одобрении. По ним
+# определяется порядок событий, даже если в API одобрений нет approved_at.
+NOTES_QUERY = "sort=desc&order_by=created_at&per_page=100"
+_PUSH_NOTE = re.compile(r"^(added \d+ (new )?commits?|добавил[аи]? \d+)", re.IGNORECASE)
+_APPROVE_NOTE = re.compile(r"^(approved this merge request|одобрил)", re.IGNORECASE)
+
+
+def _system_notes(events, pattern: re.Pattern, username: str | None = None):
+    for note in events or []:
+        if not isinstance(note, dict) or not note.get("system"):
+            continue
+        if not pattern.match((note.get("body") or "").strip()):
+            continue
+        if username and (note.get("author") or {}).get("username") != username:
+            continue
+        if moment := _parse_time(note.get("created_at")):
+            yield moment
+
+
+def last_push_time(mr: dict, versions, events, head_sha: str) -> datetime | None:
+    """Время последнего push в MR: версия diff, заметка «added N commits», создание MR."""
+    moments = [
+        moment
+        for v in versions or []
+        if v.get("head_commit_sha") == head_sha
+        and (moment := _parse_time(v.get("created_at")))
+    ]
+    moments += list(_system_notes(events, _PUSH_NOTE))
+    if created := _parse_time(mr.get("created_at")):
+        moments.append(created)
+    return max(moments, default=None)
+
+
+def approval_time(item: dict, events) -> datetime | None:
+    """Время одобрения: approved_at из API или последняя заметка «approved»."""
+    username = (item.get("user") or {}).get("username", "")
+    moments = list(_system_notes(events, _APPROVE_NOTE, username))
+    if approved := _parse_time(item.get("approved_at")):
+        moments.append(approved)
+    return max(moments, default=None)
+
+
 def check_mr_approvals(report: Report, env: dict[str, str]) -> tuple[bool, list[str]]:
     """Есть ли действующие одобрения владельцев для всех находок в MR."""
     if not env.get("GUARD_API_TOKEN"):
@@ -805,29 +847,26 @@ def check_mr_approvals(report: Report, env: dict[str, str]) -> tuple[bool, list[
         mr = api.get(f"/merge_requests/{iid}")
         approvals = api.get(f"/merge_requests/{iid}/approvals")
         versions = api.get(f"/merge_requests/{iid}/versions")
+        events = api.get(f"/merge_requests/{iid}/notes?{NOTES_QUERY}")
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         return False, [f"GitLab API недоступно: {exc}"]
 
     author = mr.get("author", {}).get("username", "")
-    head_sha = env.get("CI_COMMIT_SHA", "")
-    pushed = [
-        _parse_time(v.get("created_at"))
-        for v in versions
-        if v.get("head_commit_sha") == head_sha
-    ]
-    pushed_at = min((t for t in pushed if t), default=None)
+    pushed_at = last_push_time(mr, versions, events, env.get("CI_COMMIT_SHA", ""))
 
     notes: list[str] = []
     valid: list[dict] = []
     for item in approvals.get("approved_by") or []:
         user = item.get("user") or {}
-        approved_at = _parse_time(item.get("approved_at"))
-        if user.get("username") == author:
+        name = user.get("username", "")
+        approved_at = approval_time(item, events)
+        if name == author:
             notes.append(f"одобрение автора MR @{author} не учитывается")
-        elif pushed_at and approved_at and approved_at < pushed_at:
+        elif approved_at is None or pushed_at is None or approved_at <= pushed_at:
+            # Fail closed: если нельзя доказать, что одобрение дано после
+            # последнего push, оно считается устаревшим.
             notes.append(
-                f"одобрение @{user.get('username')} дано до последнего push — "
-                "нужно одобрить заново"
+                f"одобрение @{name} дано до последнего push — нужно одобрить заново"
             )
         else:
             valid.append(user)

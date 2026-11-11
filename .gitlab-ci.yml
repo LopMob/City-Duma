@@ -240,9 +240,9 @@ secrets:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
     # Какие коммиты новые: MR — от точки ответвления; ветка — то, чего нет в main.
     - |
-      if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
+      if [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" ]; then
         git fetch -q origin "+refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME:refs/remotes/origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
-        RANGE="$CI_MERGE_REQUEST_DIFF_BASE_SHA..$CI_COMMIT_SHA"
+        RANGE="origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME..$CI_COMMIT_SHA"
       elif [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ] && [ -n "$CI_COMMIT_BRANCH" ]; then
         git fetch -q origin "+refs/heads/$CI_DEFAULT_BRANCH:refs/remotes/origin/$CI_DEFAULT_BRANCH"
         RANGE="origin/$CI_DEFAULT_BRANCH..$CI_COMMIT_SHA"
