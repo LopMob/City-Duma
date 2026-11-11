@@ -106,7 +106,7 @@ default:
   services:
     - name: docker:${DOCKER_VERSION}-dind
       alias: docker
-      command: ["--insecure-registry=192.168.58.139:5050"]
+      command: ["--insecure-registry=192.168.58.139:5050", "--registry-mirror=https://mirror.gcr.io"]
   variables:
     DOCKER_HOST: tcp://docker:2376
     DOCKER_TLS_CERTDIR: "/certs"
@@ -265,7 +265,7 @@ build:image:
   script:
     # Метка revision связывает образ с коммитом; publish сверяет её перед push.
     - >-
-      docker build --pull
+      docker build --pull --provenance=false --sbom=false
       --label "org.opencontainers.image.revision=$CI_COMMIT_SHA"
       --label "org.opencontainers.image.source=$CI_PROJECT_URL"
       -t "$BUILD_IMAGE" .
