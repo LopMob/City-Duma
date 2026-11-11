@@ -15,6 +15,9 @@
 
 Дополнительно: исправление `make verify` — Issue #4, PR #5 (NoName1226).
 
+ЛР5 (CI): задача [`docs/tasks/ISSUE-5-ci.md`](tasks/ISSUE-5-ci.md), ветка
+`feature/lab5-ci`.
+
 Порядок работы над задачей описан в `CONTRIBUTING.md`.
 
 ## Чек-лист ЛР1

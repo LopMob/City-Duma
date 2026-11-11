@@ -97,6 +97,29 @@ make container-down        # остановить (данные в volume сох
 Приложение: `http://localhost:8000` (только с этого компьютера). Подробности,
 лимиты ресурсов и сценарий показа — [`docs/CONTAINER.md`](docs/CONTAINER.md).
 
+## Continuous Integration (ЛР5)
+
+Каждый push, merge request и изменение `main` проходят pipeline GitLab CI/CD
+([`.gitlab-ci.yml`](.gitlab-ci.yml)): стиль → тесты → миграции → резервное
+копирование → безопасность (bandit, pip-audit, gitleaks) → сборка образа →
+`make container-check` и анализ образа (trivy) → защита критических файлов →
+публикация образа с тегом commit SHA. Образ публикуется, только если прошло всё.
+
+CI выполняет те же make-команды, что и разработчик; полный прогон локально:
+
+```
+make migrate-check   # миграции: одна голова, БД с данными, откат/накат
+make backup-check    # копия -> повреждение -> восстановление (во временной БД)
+make deps-audit      # уязвимости зависимостей (pip-audit)
+make secrets         # поиск секретов (gitleaks, нужен Docker)
+make image-scan      # анализ образа (trivy, нужен Docker)
+make guard           # что из критических файлов изменено и нет ли ослаблений
+make ci-local        # всё перечисленное + verify + container-check
+```
+
+Как устроен pipeline и как настроить GitLab — [`docs/CI.md`](docs/CI.md);
+сценарий защиты — [`docs/LR5_DEFENSE.md`](docs/LR5_DEFENSE.md).
+
 ## Git-процесс
 
 Правила ветвления, коммитов и приёмки PR — в
@@ -108,7 +131,10 @@ make container-down        # остановить (данные в volume сох
 app/            — исходный код приложения (FastAPI, модели, схемы, роутеры)
 alembic/        — миграции схемы БД
 tests/          — автоматические тесты (unit, API, интеграционные)
-scripts/        — резервное копирование/восстановление БД, init, демо-данные
+scripts/        — резервное копирование/восстановление БД, init, демо-данные,
+                  проверки CI (migrate-check, backup-check, ci_guard)
+.gitlab/        — CODEOWNERS (критические файлы) и шаблон merge request
+.gitlab-ci.yml  — pipeline GitLab CI/CD (ЛР5)
 docs/           — ТЗ, модель данных, разделение задач по команде
 Makefile        — единый командный интерфейс проекта
 ```
