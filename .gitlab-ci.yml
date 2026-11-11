@@ -5,6 +5,11 @@
 # Pipeline — независимый обязательный барьер: образ публикуется в registry
 # только после успеха ВСЕХ проверок (стадия publish последняя, без needs).
 #
+# ЛР6 (Continuous Delivery): после публикации образ из main автоматически
+# разворачивается в окружении staging и принимается только после проверки
+# работающего релиза; тег версии разворачивается по ручному подтверждению,
+# возврат предыдущей версии — ручной job rollback:staging. См. docs/CD.md.
+#
 # Файл критический (.gitlab/CODEOWNERS, make guard): удалить job, сделать его
 # необязательным (allow_failure, when: manual) или вычеркнуть команду нельзя
 # без одобрения владельца. Подробное описание — docs/CI.md.
@@ -34,6 +39,8 @@ stages:
   - container    # make container-check и анализ образа
   - guard        # защита критических файлов приёмки
   - publish      # публикация образа в registry (только если всё выше прошло)
+  - deploy       # ЛР6: развёртывание образа из registry в staging / откат
+  - verify       # ЛР6: проверка работающего релиза; без неё выпуск не принят
 
 variables:
   # Версии закреплены точно (как в ЛР4): те же образы, что в Dockerfile и compose.yaml.
@@ -58,6 +65,13 @@ variables:
   REGISTRY_PASSWORD: "$CI_REGISTRY_PASSWORD"
   # Локальный тег образа внутри pipeline (до публикации).
   BUILD_IMAGE: "city-duma:$CI_COMMIT_SHORT_SHA"
+  # ЛР6: окружение staging. Адрес и учётная запись — не секрет; SSH-ключ и
+  # отпечаток сервера — защищённые переменные DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS.
+  ALPINE_IMAGE: "alpine:3.22"
+  DEPLOY_HOST: "192.168.58.139"
+  DEPLOY_USER: "deploy"
+  DEPLOY_DIR: "/srv/city-duma-staging"
+  STAGING_URL: "http://192.168.58.139:8800"
 
 default:
   interruptible: true
@@ -266,6 +280,8 @@ build:image:
     # Метка revision связывает образ с коммитом; publish сверяет её перед push.
     - >-
       docker build --pull --provenance=false --sbom=false
+      --build-arg "APP_VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+      --build-arg "GIT_COMMIT=$CI_COMMIT_SHA"
       --label "org.opencontainers.image.revision=$CI_COMMIT_SHA"
       --label "org.opencontainers.image.source=$CI_PROJECT_URL"
       -t "$BUILD_IMAGE" .
@@ -357,3 +373,89 @@ publish:image:
       docker tag "$BUILD_IMAGE" "$REGISTRY_IMAGE:$CI_COMMIT_TAG" &&
       docker push "$REGISTRY_IMAGE:$CI_COMMIT_TAG"; fi
     - echo "Опубликован $REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+
+# ================================================================ ЛР6: CD ==
+
+# Доступ к серверу: отдельная учётная запись deploy, вход только по SSH-ключу.
+# Ключ и отпечаток сервера — защищённые (Protected) переменные типа File:
+# GitLab отдаёт их только pipeline защищённых веток и тегов (main, v*).
+# resource_group: одновременно в staging выполняется только один из jobs
+# развёртывания / проверки / отката — конфликтующие выпуски ждут очереди.
+.deploy:
+  image: $ALPINE_IMAGE
+  dependencies: []
+  interruptible: false
+  resource_group: staging
+  before_script:
+    - apk add --no-cache -q openssh-client python3 make
+    - command -v python > /dev/null || ln -s "$(command -v python3)" /usr/local/bin/python
+    - >-
+      test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" ||
+      { echo "Нет защищённых переменных DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS (Settings > CI/CD > Variables, тип File; доступны только в main и тегах v*)"; exit 1; }
+    - install -m 600 "$DEPLOY_SSH_KEY" /tmp/deploy_key
+    - install -d -m 700 ~/.ssh && cp "$DEPLOY_KNOWN_HOSTS" ~/.ssh/known_hosts
+    - 'remote() { ssh -i /tmp/deploy_key -o BatchMode=yes -o ConnectTimeout=10 "$DEPLOY_USER@$DEPLOY_HOST" "$@"; }'
+    - DEPLOY_IMAGE="$REGISTRY_IMAGE:${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}"
+
+# Автоматически после успешной публикации из main; тег версии — только после
+# ручного подтверждения (кнопка в pipeline тега). Образ на сервере не
+# собирается: deploy.sh скачивает его из registry по тегу.
+deploy:staging:
+  stage: deploy
+  extends: .deploy
+  environment:
+    name: staging
+    url: $STAGING_URL
+    deployment_tier: staging
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+[.][0-9]+[.][0-9]+$/
+      when: manual
+  script:
+    - remote "cat > $DEPLOY_DIR/compose.yaml" < compose.yaml
+    - remote "cat > $DEPLOY_DIR/compose.deploy.yaml" < compose.deploy.yaml
+    - remote "bash -s -- deploy $DEPLOY_IMAGE" < deploy/staging/deploy.sh
+
+# Проверка работающего релиза: контейнеры, /health, /version (запущена именно
+# эта версия) и основной пользовательский сценарий. Только после неё выпуск
+# записывается как рабочий; при падении pipeline красный и выпуск не принят.
+verify:staging:
+  stage: verify
+  extends: .deploy
+  needs: [deploy:staging]
+  environment:
+    name: staging
+    action: verify
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+[.][0-9]+[.][0-9]+$/
+  script:
+    - remote "bash -s -- status" < deploy/staging/deploy.sh
+    - make release-check STAGING_URL="$STAGING_URL" EXPECT="${CI_COMMIT_TAG:-$CI_COMMIT_SHA}"
+    - remote "bash -s -- mark-good $DEPLOY_IMAGE" < deploy/staging/deploy.sh
+
+# Ручной возврат: без переменной — к последней проверенной версии;
+# ROLLBACK_TO=<тег образа> (v0.6.0, короткий SHA) — к указанной версии.
+# Задаётся при запуске job (Run job -> Variables). После возврата версия
+# проверяется так же, как обычный выпуск.
+rollback:staging:
+  stage: deploy
+  extends: .deploy
+  environment:
+    name: staging
+    url: $STAGING_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  variables:
+    ROLLBACK_TO: ""
+  script:
+    - >-
+      remote "bash -s -- rollback $REGISTRY_IMAGE $ROLLBACK_TO" < deploy/staging/deploy.sh > /tmp/rollback.log 2>&1 ||
+      { cat /tmp/rollback.log; exit 1; }
+    - cat /tmp/rollback.log
+    - TARGET=$(sed -n 's/^DEPLOYED_IMAGE=//p' /tmp/rollback.log)
+    - remote "bash -s -- status" < deploy/staging/deploy.sh
+    - make release-check STAGING_URL="$STAGING_URL" EXPECT="${TARGET##*:}"
+    - remote "bash -s -- mark-good $TARGET" < deploy/staging/deploy.sh

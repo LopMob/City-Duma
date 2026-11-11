@@ -70,8 +70,12 @@ REQUIRED_CI_JOBS = (
     "image-scan",
     "guard:critical-files",
     "publish:image",
+    "verify:staging",
 )
 PUBLISH_JOB = "publish:image"
+# Jobs, которые по смыслу идут ПОСЛЕ публикации (ЛР6: проверка релиза).
+# Все остальные обязательные проверки должны завершиться до publish.
+POST_PUBLISH_JOBS = ("verify:staging",)
 
 # make-цели, из которых нельзя молча убирать команды и зависимости.
 GUARDED_MAKE_TARGETS = (
@@ -86,6 +90,7 @@ GUARDED_MAKE_TARGETS = (
     "secrets",
     "container-check",
     "guard",
+    "release-check",
 )
 
 CI_RESERVED_KEYS = {
@@ -581,8 +586,16 @@ def ci_invariant_findings(head: dict | None) -> list[str]:
                 f"job {PUBLISH_JOB}: needs позволяет публиковать, не дожидаясь "
                 "всех проверок"
             )
-        if stages and publish.get("stage") != stages[-1]:
-            findings.append(f"job {PUBLISH_JOB} должен быть в последней стадии")
+        order = {stage: index for index, stage in enumerate(stages)}
+        publish_at = order.get(publish.get("stage"), -1)
+        for name in REQUIRED_CI_JOBS:
+            if name in (PUBLISH_JOB, *POST_PUBLISH_JOBS) or name not in jobs:
+                continue
+            if order.get(resolve_job(name, head).get("stage"), -1) >= publish_at:
+                findings.append(
+                    f"job {PUBLISH_JOB} должен быть позже проверки {name} — "
+                    "иначе образ публикуется до её результата"
+                )
     return findings
 
 
