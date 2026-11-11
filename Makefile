@@ -2,7 +2,7 @@
 	container-init container-up container-down container-logs container-migrate \
 	container-backup container-restore container-restore-new container-lint container-check \
 	reports-dir quality-report sast-report db-wait migrate-check backup-check \
-	deps-audit deps-audit-report secrets image-scan guard ci-local
+	deps-audit deps-audit-report secrets image-scan guard ci-local release-check
 
 setup:
 	python3 -m venv venv
@@ -129,3 +129,12 @@ guard:
 
 # Полный прогон обязательных проверок pipeline на своей машине.
 ci-local: verify migrate-check backup-check deps-audit secrets guard container-check
+
+# ---- ЛР6: проверка работающего релиза (подробности — docs/CD.md) ----
+
+STAGING_URL ?= http://192.168.58.139:8800
+EXPECT ?=
+
+# Проверка развёрнутой версии: /health, /version (= EXPECT), основной сценарий.
+release-check:
+	python scripts/release_check.py --url $(STAGING_URL) --expect "$(EXPECT)"
