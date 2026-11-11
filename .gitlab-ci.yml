@@ -107,7 +107,7 @@ default:
     - name: docker:${DOCKER_VERSION}-dind
       alias: docker
       # Если registry работает по HTTP (без TLS), раскомментируйте и укажите адрес:
-      # command: ["--insecure-registry=gitlab.local:5050"]
+      command: ["--insecure-registry=gitlab.local:5050"]
   variables:
     DOCKER_HOST: tcp://docker:2376
     DOCKER_TLS_CERTDIR: "/certs"
