@@ -225,9 +225,14 @@ def dynamic_checks() -> list[str]:
             bindings = [v for v in json.loads(ports).values() if v]
             assert not bindings, f"порт БД опубликован на хост: {ports}"
             result = env.compose("port", "db", "5432", check=False)
-            assert (
-                result.returncode != 0 or not result.stdout.strip()
-            ), "docker compose port db показывает проброс"
+            mapping = result.stdout.decode(errors="replace").strip()
+            # Новые версии Docker Compose для неопубликованного порта печатают
+            # ":0" с кодом 0 — это не проброс. Проброс — адрес с ненулевым портом.
+            host_port = mapping.rsplit(":", 1)[-1] if mapping else ""
+            assert result.returncode != 0 or host_port in {
+                "",
+                "0",
+            }, f"docker compose port db показывает проброс: {mapping}"
             return "порт 5432 наружу не опубликован"
 
         def resource_limits():

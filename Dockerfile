@@ -11,6 +11,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+
 # Системный пользователь без пароля, без домашней папки и без оболочки.
 # Числовой UID закреплён, чтобы проверка «не root» не зависела от имени.
 RUN groupadd --system --gid 10001 app \
@@ -21,7 +25,8 @@ WORKDIR /app
 
 # Сначала зависимости: слой кешируется и пересобирается только при смене версий.
 COPY requirements-runtime.txt .
-RUN pip install -r requirements-runtime.txt
+RUN pip install -r requirements-runtime.txt \
+    && pip uninstall -y setuptools wheel
 
 # Код принадлежит root и недоступен для записи пользователю app:
 # скомпрометированный процесс не сможет подменить код приложения.
