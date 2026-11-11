@@ -120,6 +120,21 @@ make ci-local        # всё перечисленное + verify + container-ch
 Как устроен pipeline и как настроить GitLab — [`docs/CI.md`](docs/CI.md);
 сценарий защиты — [`docs/LR5_DEFENSE.md`](docs/LR5_DEFENSE.md).
 
+## Continuous Delivery (ЛР6)
+
+После успешной публикации образ из `main` автоматически разворачивается в
+окружении staging (http://192.168.58.139:8800) и принимается только после
+проверки работающего релиза: контейнеры, `/health`, `/version` и основной
+сценарий. Теги `vX.Y.Z` разворачиваются по ручному подтверждению, возврат
+предыдущей версии — ручной job `rollback:staging`.
+
+```
+make release-check STAGING_URL=http://192.168.58.139:8800 EXPECT=v0.6.0
+```
+
+Устройство и настройка — [`docs/CD.md`](docs/CD.md), сценарий защиты —
+[`docs/LR6_DEFENSE.md`](docs/LR6_DEFENSE.md).
+
 ## Git-процесс
 
 Правила ветвления, коммитов и приёмки PR — в
