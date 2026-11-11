@@ -13,7 +13,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/lib/apt/lists/*
 
 # Системный пользователь без пароля, без домашней папки и без оболочки.
 # Числовой UID закреплён, чтобы проверка «не root» не зависела от имени.
