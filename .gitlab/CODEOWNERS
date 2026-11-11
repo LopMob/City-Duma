@@ -1,0 +1,47 @@
+# Владельцы критических файлов приёмки (ЛР5, п.13–14).
+#
+# Синтаксис как у .gitignore: путь с «/» в начале — от корня репозитория,
+# «/» в конце — весь каталог. Для файла действует ПОСЛЕДНЕЕ подходящее правило.
+#
+# Как это применяется:
+#   * GitLab Premium/Ultimate — включите «Code owner approval» для ветки main
+#     (Settings → Repository → Branch rules → main), GitLab сам потребует
+#     одобрение владельца.
+#   * GitLab Free (наш случай по умолчанию) — этот файл читает job
+#     guard:critical-files (scripts/ci_guard.py). MR, затрагивающий любой путь
+#     ниже, не проходит CI, пока его не одобрит владелец, который не является
+#     автором MR, причём после последнего push. Список берётся из ЦЕЛЕВОЙ ветки:
+#     правка самого CODEOWNERS тоже требует одобрения по старому списку.
+#
+# Владельцы — логины участников в ВАШЕМ GitLab (замените, если отличаются).
+# Можно указать роль: @@maintainer — любой участник с ролью Maintainer и выше.
+
+[Критические файлы приёмки]
+# Тесты: удалять, пропускать и ослаблять их без согласования нельзя
+/tests/                       @stepanstoliarzh @LopMob @NoName1226
+
+# Единый командный интерфейс, пороги качества, версии анализаторов
+/Makefile                     @stepanstoliarzh @LopMob @NoName1226
+/pyproject.toml               @stepanstoliarzh @LopMob @NoName1226
+/requirements.txt             @stepanstoliarzh @LopMob @NoName1226
+
+# Pipeline и настройки анализаторов
+/.gitlab-ci.yml               @stepanstoliarzh @LopMob @NoName1226
+/.gitlab/                     @stepanstoliarzh @LopMob @NoName1226
+/.gitleaks.toml               @stepanstoliarzh @LopMob @NoName1226
+/.gitleaksignore              @stepanstoliarzh @LopMob @NoName1226
+/.trivyignore                 @stepanstoliarzh @LopMob @NoName1226
+
+# Скрипты, которые и есть проверки
+/scripts/ci_guard.py          @stepanstoliarzh @LopMob @NoName1226
+/scripts/container_check.py   @stepanstoliarzh @LopMob @NoName1226
+/scripts/container_policy.py  @stepanstoliarzh @LopMob @NoName1226
+/scripts/migrate_check.py     @stepanstoliarzh @LopMob @NoName1226
+/scripts/backup_check.py      @stepanstoliarzh @LopMob @NoName1226
+/scripts/_scratch.py          @stepanstoliarzh @LopMob @NoName1226
+/scripts/db_wait.py           @stepanstoliarzh @LopMob @NoName1226
+
+# Правила приёмки
+/CONTRIBUTING.md              @stepanstoliarzh @LopMob @NoName1226
+/docs/CI.md                   @stepanstoliarzh @LopMob @NoName1226
+/docs/VERIFY.md               @stepanstoliarzh @LopMob @NoName1226
