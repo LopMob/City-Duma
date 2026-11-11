@@ -93,9 +93,10 @@ default:
     DATABASE_URL: "postgresql+psycopg2://duma_ci:${CI_TEST_DB_PASSWORD}@postgres:5432/city_duma_ci"
     ENVIRONMENT: ci
 
-.require_db_password: &require_db_password >-
-  test -n "$CI_TEST_DB_PASSWORD" ||
-  { echo "Не задана переменная CI_TEST_DB_PASSWORD (Settings > CI/CD > Variables, Masked)"; exit 1; }
+.require_db_password: &require_db_password
+  - >-
+    test -n "$CI_TEST_DB_PASSWORD" ||
+    { echo "Не задана переменная CI_TEST_DB_PASSWORD (Settings > CI/CD > Variables, Masked)"; exit 1; }
 
 # Docker-in-Docker с TLS: сборка образа и make container-check.
 # Runner должен быть зарегистрирован с privileged = true и volume /certs/client.
