@@ -9,7 +9,7 @@ from app.routers import commissions, deputies, meetings, memberships
 
 settings = get_settings()
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+app = FastAPI(title=settings.app_name, version=settings.app_version)
 
 app.include_router(deputies.router)
 app.include_router(commissions.router)
@@ -28,6 +28,16 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok", "environment": settings.environment}
+
+
+@app.get("/version")
+def version():
+    """Какая версия запущена: тег/короткий SHA и полный SHA коммита (ЛР6)."""
+    return {
+        "version": settings.app_version,
+        "commit": settings.git_commit,
+        "environment": settings.environment,
+    }
 
 
 @app.exception_handler(crud.ConflictError)

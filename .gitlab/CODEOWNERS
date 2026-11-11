@@ -41,7 +41,13 @@
 /scripts/_scratch.py          @stepanstoliarzh @LopMob @NoName1226
 /scripts/db_wait.py           @stepanstoliarzh @LopMob @NoName1226
 
+# ЛР6: развёртывание и проверка релиза
+/deploy/                      @stepanstoliarzh @LopMob @NoName1226
+/compose.deploy.yaml          @stepanstoliarzh @LopMob @NoName1226
+/scripts/release_check.py     @stepanstoliarzh @LopMob @NoName1226
+
 # Правила приёмки
 /CONTRIBUTING.md              @stepanstoliarzh @LopMob @NoName1226
 /docs/CI.md                   @stepanstoliarzh @LopMob @NoName1226
 /docs/VERIFY.md               @stepanstoliarzh @LopMob @NoName1226
+/docs/CD.md                   @stepanstoliarzh @LopMob @NoName1226

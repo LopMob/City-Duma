@@ -261,6 +261,11 @@ def test_pipeline_has_every_required_job():
             lambda ci: ci["sast"].update(rules=[{"when": "never"}]),
             "rules отключают",
         ),
+        (
+            lambda ci: ci["image-scan"].update(stage="verify"),
+            "publish:image должен быть позже проверки image-scan",
+        ),
+        (lambda ci: ci.pop("verify:staging"), "нет обязательного job verify:staging"),
     ],
 )
 def test_weakened_pipeline_is_detected(change, expected):

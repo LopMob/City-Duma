@@ -35,6 +35,14 @@ COPY alembic ./alembic
 COPY app ./app
 COPY static ./static
 
+# ЛР6: версия релиза для /version. CI передаёт --build-arg APP_VERSION (тег
+# или короткий SHA) и GIT_COMMIT (полный SHA); при локальной сборке — dev.
+# Аргументы объявлены в конце, чтобы не сбрасывать кеш слоёв с зависимостями.
+ARG APP_VERSION=dev
+ARG GIT_COMMIT=unknown
+ENV APP_VERSION=${APP_VERSION} \
+    GIT_COMMIT=${GIT_COMMIT}
+
 USER 10001:10001
 
 EXPOSE 8000

@@ -1,0 +1,18 @@
+# ЛР6: запуск ГОТОВОГО образа из registry в окружении staging.
+#
+# Используется поверх compose.yaml (ЛР4):
+#   docker compose -f compose.yaml -f compose.deploy.yaml --env-file .env up -d --no-build
+# Образ на сервере не собирается: APP_IMAGE — ссылка на образ в registry
+# (192.168.58.139:5050/root/city-duma:<тег>), его задаёт deploy/staging/deploy.sh.
+# Настройки окружения (пароли БД, порт) — в файле .env на сервере, не в образе
+# и не в git.
+services:
+  migrate:
+    image: ${APP_IMAGE:?APP_IMAGE не задан — образ из registry передаёт deploy.sh}
+
+  app:
+    image: ${APP_IMAGE:?APP_IMAGE не задан — образ из registry передаёт deploy.sh}
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+    # Лимит памяти — параметр окружения (по умолчанию как в compose.yaml).
+    mem_limit: ${APP_MEM_LIMIT:-256m}

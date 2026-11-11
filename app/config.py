@@ -25,6 +25,12 @@ class Settings(BaseSettings):
 
     environment: str = "development"
 
+    # ЛР6: версия работающего релиза. Значения «вшиваются» в образ при сборке
+    # в CI (Dockerfile: ARG APP_VERSION / GIT_COMMIT) и отдаются по /version,
+    # чтобы после развёртывания проверить, что запущена именно нужная версия.
+    app_version: str = "dev"
+    git_commit: str = "unknown"
+
     @field_validator("database_url")
     @classmethod
     def _only_postgresql(cls, value: str) -> str:

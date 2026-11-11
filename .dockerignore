@@ -49,3 +49,4 @@ Makefile
 Dockerfile
 .dockerignore
 compose.yaml
+compose.*.yaml
