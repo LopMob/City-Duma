@@ -300,15 +300,33 @@ ENV = {
 }
 
 
-def _responses(approved_by, pushed_at="2026-11-10T10:00:00Z"):
+NOTES = f"/merge_requests/5/notes?{guard.NOTES_QUERY}"
+
+
+def _responses(approved_by, pushed_at="2026-11-10T10:00:00Z", notes=(), versions=None):
     return {
-        "/merge_requests/5": {"author": {"username": "stepan"}},
+        "/merge_requests/5": {
+            "author": {"username": "stepan"},
+            "created_at": "2026-11-10T08:00:00Z",
+        },
         "/merge_requests/5/approvals": {"approved_by": approved_by},
-        "/merge_requests/5/versions": [
-            {"head_commit_sha": "abc", "created_at": pushed_at}
-        ],
+        "/merge_requests/5/versions": (
+            versions
+            if versions is not None
+            else [{"head_commit_sha": "abc", "created_at": pushed_at}]
+        ),
+        NOTES: list(notes),
         "/members/all/2": {"access_level": 40},
         "/members/all/3": {"access_level": 30},
+    }
+
+
+def _note(body, at, username="stepan"):
+    return {
+        "system": True,
+        "body": body,
+        "created_at": at,
+        "author": {"username": username},
     }
 
 
@@ -356,6 +374,41 @@ def test_role_owner_requires_maintainer_level(monkeypatch):
     assert not guard.check_mr_approvals(_report(("@@maintainer",)), ENV)[0]
     _fake_api(monkeypatch, _responses([_approval(2, "lead")]))
     assert guard.check_mr_approvals(_report(("@@maintainer",)), ENV)[0]
+
+
+def _plain(user_id, username):
+    """Одобрение без approved_at (так отвечают некоторые версии GitLab)."""
+    return {"user": {"id": user_id, "username": username}}
+
+
+def test_approval_time_taken_from_system_note(monkeypatch):
+    notes = [
+        _note("added 1 commit", "2026-11-10T10:00:00Z"),
+        _note("approved this merge request", "2026-11-10T11:00:00Z", "LopMob"),
+    ]
+    _fake_api(monkeypatch, _responses([_plain(2, "LopMob")], notes=notes))
+    ok, notes_out = guard.check_mr_approvals(_report(), ENV)
+    assert ok, notes_out
+
+
+def test_new_push_after_approval_makes_it_stale(monkeypatch):
+    # Пустой коммит может не создать новую версию diff — push виден по заметке.
+    notes = [
+        _note("added 1 commit", "2026-11-10T12:00:00Z"),
+        _note("approved this merge request", "2026-11-10T11:00:00Z", "LopMob"),
+    ]
+    responses = _responses([_plain(2, "LopMob")], notes=notes, versions=[])
+    _fake_api(monkeypatch, responses)
+    ok, notes_out = guard.check_mr_approvals(_report(), ENV)
+    assert not ok
+    assert any("до последнего push" in n for n in notes_out)
+
+
+def test_approval_with_unknown_time_fails_closed(monkeypatch):
+    _fake_api(monkeypatch, _responses([_plain(2, "LopMob")]))
+    ok, notes_out = guard.check_mr_approvals(_report(), ENV)
+    assert not ok
+    assert any("до последнего push" in n for n in notes_out)
 
 
 def test_missing_token_fails_closed():
