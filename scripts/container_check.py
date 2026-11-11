@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import socket
 import subprocess
@@ -50,6 +51,13 @@ from container_policy import (
 
 PROJECT = "city-duma-check"
 STOP_GRACE_SECONDS = 20
+# Адрес, по которому проверка обращается к опубликованному порту приложения.
+# Локально Docker работает на этой же машине (127.0.0.1). В CI (ЛР5) Docker —
+# отдельный сервис docker:dind, порт публикуется на нём: CONTAINER_CHECK_HOST=docker.
+CHECK_HOST = os.environ.get("CONTAINER_CHECK_HOST", "127.0.0.1")
+# Локально порт открывается только на localhost; в CI — на интерфейсе dind,
+# доступном лишь контейнерам этого job.
+APP_BIND = "127.0.0.1" if CHECK_HOST in {"127.0.0.1", "localhost"} else "0.0.0.0"
 
 
 # ----------------------------------------------------------------- статика --
@@ -108,7 +116,7 @@ class Env:
             f"POSTGRES_PASSWORD={secrets.token_hex(16)}\n"
             "POSTGRES_DB=city_duma_check\n"
             f"APP_PORT={self.port}\n"
-            "APP_BIND=127.0.0.1\n"
+            f"APP_BIND={APP_BIND}\n"
             "ENVIRONMENT=container-check\n",
             encoding="utf-8",
         )
@@ -135,7 +143,7 @@ class Env:
     def http(self, method: str, path: str, body: dict | None = None):
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(
-            f"http://127.0.0.1:{self.port}{path}",
+            f"http://{CHECK_HOST}:{self.port}{path}",
             data=data,
             method=method,
             headers={"Content-Type": "application/json"},
@@ -217,9 +225,14 @@ def dynamic_checks() -> list[str]:
             bindings = [v for v in json.loads(ports).values() if v]
             assert not bindings, f"порт БД опубликован на хост: {ports}"
             result = env.compose("port", "db", "5432", check=False)
-            assert (
-                result.returncode != 0 or not result.stdout.strip()
-            ), "docker compose port db показывает проброс"
+            mapping = result.stdout.decode(errors="replace").strip()
+            # Новые версии Docker Compose для неопубликованного порта печатают
+            # ":0" с кодом 0 — это не проброс. Проброс — адрес с ненулевым портом.
+            host_port = mapping.rsplit(":", 1)[-1] if mapping else ""
+            assert result.returncode != 0 or host_port in {
+                "",
+                "0",
+            }, f"docker compose port db показывает проброс: {mapping}"
             return "порт 5432 наружу не опубликован"
 
         def resource_limits():

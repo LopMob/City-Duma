@@ -16,6 +16,7 @@ id_rsa*
 # Окружения и кеши
 .venv
 venv
+.cache
 __pycache__
 *.pyc
 .pytest_cache
@@ -28,7 +29,16 @@ backups
 *.sql
 *.db
 
+# Отчёты и артефакты CI (ЛР5)
+reports
+*.tar
+
 # Не нужно для работы приложения
+.gitlab
+.gitlab-ci.yml
+.gitleaks.toml
+.gitleaksignore
+.trivyignore
 tests
 docs
 deploy
