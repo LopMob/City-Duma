@@ -30,7 +30,7 @@ import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 Response = tuple[int, object]
 Transport = Callable[[str, str, dict | None], Response]
@@ -125,7 +125,7 @@ class ReleaseCheck:
             self.clean()
 
     def scenario(self) -> None:
-        mark = f"release-check {datetime.now(UTC):%Y-%m-%d %H:%M:%S} {uuid.uuid4().hex[:6]}"
+        mark = f"release-check {datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} {uuid.uuid4().hex[:6]}"
         self.step("сценарий: депутат -> комиссия -> заседание -> кворум")
         deputy = expect_status(
             self.call("POST", "/deputies", {"full_name": f"Депутат {mark}"}),
@@ -157,7 +157,7 @@ class ReleaseCheck:
                 {
                     "commission_id": commission["id"],
                     "title": f"Заседание {mark}",
-                    "scheduled_at": datetime.now(UTC).isoformat(),
+                    "scheduled_at": datetime.now(timezone.utc).isoformat(),
                 },
             ),
             201,
