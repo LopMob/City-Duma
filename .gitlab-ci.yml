@@ -19,13 +19,14 @@ workflow:
   rules:
     # 1) merge request: создание MR и каждый push в его ветку
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    # 2) push в ветку, по которой уже открыт MR, — не дублируем pipeline
-    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
-      when: never
-    # 3) push в любую ветку (в т.ч. изменение main после слияния)
-    - if: $CI_COMMIT_BRANCH
-    # 4) теги версий (v0.5.0 и т.д.)
+    # 2) изменение main (слияние MR) — проверка, публикация и деплой в staging
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    # 3) теги версий (v0.5.0 и т.д.)
     - if: $CI_COMMIT_TAG
+    # 4) ручной запуск для любой ветки (Build -> Pipelines -> Run pipeline)
+    - if: $CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "web"
+    # Push в feature-ветку сам pipeline не запускает: по GitFlow ветка идёт
+    # в main только через MR, и её проверяет merge request pipeline.
   auto_cancel:
     on_new_commit: interruptible
 
