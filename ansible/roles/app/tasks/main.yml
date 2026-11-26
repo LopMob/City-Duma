@@ -77,3 +77,24 @@
     owner: "{{ app_deploy_user }}"
     group: "{{ app_deploy_user }}"
     mode: "0750"
+
+# ------------------------------------------------------------- registry --
+
+- name: Создать каталог настроек Docker пользователя deploy
+  ansible.builtin.file:
+    path: "{{ app_user.home }}/.docker"
+    state: directory
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0700"
+
+# То же, что делает docker login, но без интерактивного ввода пароля.
+- name: Записать доступ к registry (deploy token)
+  ansible.builtin.template:
+    src: docker-config.json.j2
+    dest: "{{ app_user.home }}/.docker/config.json"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0600"
+  diff: false
+  when: app_registry_user | length > 0
