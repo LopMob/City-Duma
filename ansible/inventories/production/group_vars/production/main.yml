@@ -1,0 +1,26 @@
+---
+# Параметры ОКРУЖЕНИЯ production.
+env_name: production
+
+# Приложение
+app_port: 8000
+app_deploy_dir: /srv/city-duma-production
+app_compose_project: city-duma-production
+app_mem_limit: 384m
+# Какую версию (тег образа в registry) запустить на чистой машине.
+app_version: v0.6.0
+# CI в production не разворачивает, ключ pipeline не нужен.
+app_deploy_ssh_public_key: ""
+
+# Секреты — только из зашифрованного vault.yml
+app_postgres_password: "{{ vault_postgres_password }}"
+app_registry_user: "{{ vault_registry_user }}"
+app_registry_token: "{{ vault_registry_token }}"
+
+# Снаружи доступен только порт приложения (см. group_vars/all.yml).
+firewall_restrict_docker: true
+
+# Registry работает по HTTP — Docker нужно явно разрешить его.
+docker_manage_daemon_config: true
+docker_insecure_registries:
+  - "{{ registry_host }}"

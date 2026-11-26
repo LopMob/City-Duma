@@ -1,0 +1,30 @@
+---
+# ОБЩИЕ параметры — одинаковы для всех окружений и серверов.
+# Адреса по умолчанию — как в ЛР5–6 (ВМ 192.168.58.139). На другой машине
+# они переопределяются при запуске (см. docs/ANSIBLE.md):
+#   make infra-apply ENV=production HOST=<IP> SSH_USER=<пользователь> \
+#        REGISTRY_IMAGE=<адрес registry>/<группа>/city-duma
+#
+# Где какие параметры (от слабого к сильному, сильный переопределяет слабый):
+#   roles/<роль>/defaults/main.yml                 — значения по умолчанию ролей
+#   group_vars/all.yml (этот файл)                 — общие для проекта
+#   inventories/<окружение>/group_vars/<окр>/main.yml   — окружения
+#   inventories/<окружение>/group_vars/<окр>/vault.yml  — секреты (зашифрованы)
+#   inventories/<окружение>/host_vars/<узел>.yml        — конкретного сервера
+
+# SSH разрешён из сети, в которой находится сам сервер (вычисляется по его
+# основному интерфейсу), и с машины, откуда запущен Ansible (см. site.yml).
+admin_networks:
+  - "{{ ansible_facts['default_ipv4']['network'] }}/{{ ansible_facts['default_ipv4']['netmask'] }}"
+
+# Образ приложения в registry (GitLab Container Registry из ЛР5).
+# В CI берётся REGISTRY_IMAGE из pipeline, локально можно задать параметром make.
+app_image_repo: "{{ lookup('ansible.builtin.env', 'REGISTRY_IMAGE') | default('192.168.58.139:5050/root/city-duma', true) }}"
+registry_host: "{{ app_image_repo.split('/') | first }}"
+
+# Пользователь, под которым приложение разворачивается и запускается (ЛР6).
+app_deploy_user: deploy
+
+# Снаружи доступен только порт приложения; порт БД не публикуется вообще.
+firewall_docker_ports:
+  - "{{ app_port }}"

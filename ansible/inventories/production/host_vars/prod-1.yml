@@ -1,0 +1,8 @@
+---
+# Параметры УЗЛА prod-1 — чистая ВМ (Debian 12 без графики).
+# Замените адрес и пользователя на свои или передайте при запуске:
+#   make ... HOST=<IP> SSH_USER=<пользователь>
+ansible_host: "{{ lookup('ansible.builtin.env', 'TARGET_HOST') | default('192.168.58.140', true) }}"
+# Пользователь, созданный при установке Debian (с правом sudo).
+ansible_user: "{{ lookup('ansible.builtin.env', 'TARGET_USER') | default('admin', true) }}"
+ansible_become_password: "{{ vault_become_password }}"

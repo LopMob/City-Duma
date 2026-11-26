@@ -1,0 +1,17 @@
+---
+# Параметры УЗЛА staging-1 — ВМ, где работают GitLab, registry и runner.
+# Адрес и пользователь — как в ЛР6; на другой машине: make ... HOST=<IP> SSH_USER=<пользователь>
+ansible_host: "{{ lookup('ansible.builtin.env', 'TARGET_HOST') | default('192.168.58.139', true) }}"
+# Администратор: под ним Ansible заходит по SSH-ключу и выполняет sudo.
+ansible_user: "{{ lookup('ansible.builtin.env', 'TARGET_USER') | default('vboxuser', true) }}"
+ansible_become_password: "{{ vault_become_password }}"
+
+# Контейнеры этой ВМ (jobs runner'а) ходят на сам хост: SSH для deploy
+# и registry — их трафик идёт с интерфейсов Docker.
+firewall_trusted_interfaces:
+  - docker0
+  - br-+
+# Порты GitLab на случай, если он установлен не в контейнере.
+firewall_open_ports:
+  - { port: 80, proto: tcp, comment: gitlab-http }
+  - { port: 5050, proto: tcp, comment: gitlab-registry }

@@ -37,3 +37,6 @@
 
 ЛР6 (CD): задача [`docs/tasks/ISSUE-6-cd.md`](tasks/ISSUE-6-cd.md), ветка
 `feature/lab6-cd`.
+
+ЛР7 (Ansible): задача [`docs/tasks/ISSUE-7-ansible.md`](tasks/ISSUE-7-ansible.md),
+ветка `feature/lab7-ansible`.

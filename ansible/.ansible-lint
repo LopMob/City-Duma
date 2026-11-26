@@ -1,0 +1,8 @@
+---
+# ЛР7: правила ansible-lint. Самый строгий профиль; исключения запрещены
+# без обоснования в MR (как и для остальных анализаторов, см. CONTRIBUTING.md).
+profile: production
+exclude_paths:
+  # Зашифрованные секреты — не YAML, их проверяет scripts/vault_check.py.
+  - inventories/staging/group_vars/staging/vault.yml
+  - inventories/production/group_vars/production/vault.yml

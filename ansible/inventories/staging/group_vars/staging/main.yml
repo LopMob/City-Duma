@@ -1,0 +1,28 @@
+---
+# Параметры ОКРУЖЕНИЯ staging.
+env_name: staging
+
+# Приложение
+app_port: 8800
+app_deploy_dir: /srv/city-duma-staging
+app_compose_project: city-duma-staging
+app_mem_limit: 256m
+# Версия, которую запустить, если в окружении ещё нет проверенного релиза.
+# Обычно staging обновляет CI (ЛР6), и Ansible работающую версию не трогает.
+app_version: v0.6.0
+# Ключ, под которым pipeline заходит на сервер (deploy:staging). Не секрет.
+# Вставьте строку из ~/deploy_key.pub (ЛР6). Пусто — ключ не трогается.
+app_deploy_ssh_public_key: ""
+
+# Секреты — только из зашифрованного vault.yml
+app_postgres_password: "{{ vault_postgres_password }}"
+app_registry_user: "{{ vault_registry_user }}"
+app_registry_token: "{{ vault_registry_token }}"
+
+# На этой ВМ GitLab и runner сами публикуют порты через Docker,
+# поэтому ограничение опубликованных портов (DOCKER-USER) здесь выключено.
+firewall_restrict_docker: false
+
+# Docker на этой ВМ уже настроен под GitLab (insecure-registries и т.д.):
+# daemon.json не перезаписываем, чтобы не сломать CI.
+docker_manage_daemon_config: false
