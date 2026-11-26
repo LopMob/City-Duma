@@ -1,0 +1,15 @@
+---
+# ОБРАЗЕЦ секретов окружения production. Настоящий файл — vault.yml рядом,
+# он ОБЯЗАТЕЛЬНО зашифрован: make infra-vault ENV=production
+# (make infra-lint не пропустит незашифрованный vault.yml).
+
+# Пароль БД приложения. Для staging — тот же, что уже записан в
+# /srv/city-duma-staging/.env (иначе приложение не подключится к старой БД).
+vault_postgres_password: "замените-на-длинный-пароль"
+
+# Пароль sudo администратора (ansible_user).
+vault_become_password: "замените"
+
+# Deploy token GitLab с правом read_registry (ЛР6).
+vault_registry_user: "staging-pull"
+vault_registry_token: "замените"
