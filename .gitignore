@@ -14,3 +14,6 @@ coverage.xml
 reports/
 .cache/
 image.tar
+# ЛР7: окружение Ansible и пароль ansible-vault
+.venv-ansible/
+.vault_pass*
