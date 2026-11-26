@@ -135,6 +135,22 @@ make release-check STAGING_URL=http://192.168.58.139:8800 EXPECT=v0.6.0
 Устройство и настройка — [`docs/CD.md`](docs/CD.md), сценарий защиты —
 [`docs/LR6_DEFENSE.md`](docs/LR6_DEFENSE.md).
 
+## Управление конфигурацией (ЛР7)
+
+Серверы окружений staging и production настраиваются кодом (Ansible,
+каталог `ansible/`): пакеты, пользователи, SSH, Docker, iptables, настройки
+и запуск приложения с проверкой после настройки. Повторный запуск ничего не
+меняет, ручные правки откатывает. Секреты — только в зашифрованных `vault.yml`.
+
+```
+make infra-setup                     # Ansible в .venv-ansible
+make infra-lint                      # секреты, синтаксис, ansible-lint
+make infra-apply ENV=production      # привести сервер к нужному состоянию
+```
+
+Устройство и настройка — [`docs/ANSIBLE.md`](docs/ANSIBLE.md), сценарий защиты —
+[`docs/LR7_DEFENSE.md`](docs/LR7_DEFENSE.md).
+
 ## Git-процесс
 
 Правила ветвления, коммитов и приёмки PR — в
@@ -149,7 +165,8 @@ tests/          — автоматические тесты (unit, API, инте
 scripts/        — резервное копирование/восстановление БД, init, демо-данные,
                   проверки CI (migrate-check, backup-check, ci_guard)
 .gitlab/        — CODEOWNERS (критические файлы) и шаблон merge request
-.gitlab-ci.yml  — pipeline GitLab CI/CD (ЛР5)
+.gitlab-ci.yml  — pipeline GitLab CI/CD (ЛР5–7)
+ansible/        — управление конфигурацией серверов (ЛР7)
 docs/           — ТЗ, модель данных, разделение задач по команде
 Makefile        — единый командный интерфейс проекта
 ```
