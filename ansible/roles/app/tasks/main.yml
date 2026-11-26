@@ -29,3 +29,51 @@
     group: "{{ app_deploy_user }}"
     mode: "0600"
   when: app_deploy_ssh_public_key | length > 0
+
+# ------------------------------------------------------------ окружение --
+
+- name: Создать каталоги окружения
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0750"
+  loop:
+    - "{{ app_deploy_dir }}"
+    - "{{ app_deploy_dir }}/state"
+  loop_control:
+    loop_var: app_dir
+
+- name: Записать настройки окружения (.env)
+  ansible.builtin.template:
+    src: app.env.j2
+    dest: "{{ app_deploy_dir }}/.env"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0600"
+  # В выводе --diff был бы пароль БД.
+  diff: false
+  notify: Перезапустить приложение
+
+- name: Скопировать файлы compose
+  ansible.builtin.copy:
+    src: "{{ app_repo_root }}/{{ app_file }}"
+    dest: "{{ app_deploy_dir }}/{{ app_file }}"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0640"
+  loop:
+    - compose.yaml
+    - compose.deploy.yaml
+  loop_control:
+    loop_var: app_file
+  notify: Перезапустить приложение
+
+- name: Скопировать скрипт развёртывания
+  ansible.builtin.copy:
+    src: "{{ app_repo_root }}/deploy/staging/deploy.sh"
+    dest: "{{ app_deploy_dir }}/deploy.sh"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0750"

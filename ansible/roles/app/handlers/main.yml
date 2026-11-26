@@ -1,0 +1,11 @@
+---
+# Пересоздать контейнеры с теми же образами, но новыми настройками.
+# Если приложение ещё не запускалось — запуск сделает задача роли.
+- name: Перезапустить приложение
+  ansible.builtin.command:
+    cmd: "{{ app_deploy_dir }}/deploy.sh deploy {{ app_running_image }}"
+  environment: "{{ app_deploy_environment }}"
+  become: true
+  become_user: "{{ app_deploy_user }}"
+  when: app_running_image | length > 0
+  changed_when: true
