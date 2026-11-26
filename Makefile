@@ -2,7 +2,8 @@
 	container-init container-up container-down container-logs container-migrate \
 	container-backup container-restore container-restore-new container-lint container-check \
 	reports-dir quality-report sast-report db-wait migrate-check backup-check \
-	deps-audit deps-audit-report secrets image-scan guard ci-local release-check
+	deps-audit deps-audit-report secrets image-scan guard ci-local release-check \
+	infra-setup infra-lint infra-check infra-apply infra-vault
 
 setup:
 	python3 -m venv venv
@@ -138,3 +139,51 @@ EXPECT ?=
 # Проверка развёрнутой версии: /health, /version (= EXPECT), основной сценарий.
 release-check:
 	python scripts/release_check.py --url $(STAGING_URL) --expect "$(EXPECT)"
+
+# ---- ЛР7: управление конфигурацией, Ansible (подробности — docs/ANSIBLE.md) ----
+
+# Окружение: staging (по умолчанию) или production.
+ENV ?= staging
+ANSIBLE_VENV ?= .venv-ansible
+ANSIBLE_BIN ?= $(CURDIR)/$(ANSIBLE_VENV)/bin
+# Файл с паролем ansible-vault (в git не попадает; в CI — защищённая переменная).
+VAULT_PASS_FILE ?= $(HOME)/.vault_pass_city_duma
+VAULT_FILE = inventories/$(ENV)/group_vars/$(ENV)/vault.yml
+# Адреса серверов и registry по умолчанию записаны в ansible/inventories/*/host_vars
+# и ansible/group_vars/all.yml. На другой машине их можно переопределить:
+#   make infra-apply ENV=production HOST=10.0.0.5 SSH_USER=admin \
+#        REGISTRY_IMAGE=10.0.0.2:5050/root/city-duma
+HOST ?=
+SSH_USER ?=
+REGISTRY_IMAGE ?=
+PLAYBOOK = cd ansible && TARGET_HOST="$(HOST)" TARGET_USER="$(SSH_USER)" REGISTRY_IMAGE="$(REGISTRY_IMAGE)" \
+	$(ANSIBLE_BIN)/ansible-playbook -i inventories/$(ENV)/hosts.yml \
+	--vault-password-file $(VAULT_PASS_FILE) site.yml
+
+# Отдельное окружение с Ansible и ansible-lint точных версий.
+infra-setup:
+	python3 -m venv $(ANSIBLE_VENV)
+	$(ANSIBLE_BIN)/pip install -r ansible/requirements.txt
+
+# Проверка инфраструктурного кода: нет открытых секретов, синтаксис, ansible-lint.
+infra-lint:
+	$(ANSIBLE_BIN)/python scripts/vault_check.py ansible
+	cd ansible && $(ANSIBLE_BIN)/ansible-playbook -i inventories/staging/hosts.yml --syntax-check site.yml
+	cd ansible && $(ANSIBLE_BIN)/ansible-playbook -i inventories/production/hosts.yml --syntax-check site.yml
+	cd ansible && $(ANSIBLE_BIN)/ansible-lint
+
+# Пробный запуск: что изменилось бы на серверах, без изменений.
+infra-check:
+	$(PLAYBOOK) --check --diff
+
+# Привести серверы окружения к требуемому состоянию и проверить приложение.
+infra-apply:
+	$(PLAYBOOK)
+
+# Создать или изменить зашифрованные секреты окружения.
+infra-vault:
+	cd ansible && if [ -f $(VAULT_FILE) ]; then \
+		$(ANSIBLE_BIN)/ansible-vault edit --vault-password-file $(VAULT_PASS_FILE) $(VAULT_FILE); \
+	else \
+		$(ANSIBLE_BIN)/ansible-vault create --vault-password-file $(VAULT_PASS_FILE) $(VAULT_FILE); \
+	fi
