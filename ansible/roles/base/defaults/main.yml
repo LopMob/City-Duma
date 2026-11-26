@@ -1,0 +1,19 @@
+---
+# Роль base: пакеты, администратор, SSH.
+base_packages:
+  - acl            # нужен Ansible для become_user: deploy
+  - ca-certificates
+  - curl
+  - gnupg
+  - iptables
+  - python3
+  - sudo
+base_extra_packages: []
+
+# Администратор — пользователь, под которым работает Ansible.
+base_admin_user: "{{ ansible_user }}"
+# Дополнительные публичные ключи администраторов (добавляются, не заменяют).
+base_admin_ssh_public_keys: []
+
+# SSH: вход под root запрещён, по паролю — тоже (только ключи).
+base_ssh_password_authentication: false
