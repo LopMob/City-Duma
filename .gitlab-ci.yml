@@ -73,6 +73,10 @@ variables:
   DEPLOY_USER: "deploy"
   DEPLOY_DIR: "/srv/city-duma-staging"
   STAGING_URL: "http://192.168.58.139:8800"
+  # ЛР7: администраторы серверов для Ansible и адрес production (не секреты).
+  STAGING_SSH_USER: "vboxuser"
+  PRODUCTION_HOST: "192.168.58.140"
+  PRODUCTION_SSH_USER: "admin"
 
 default:
   interruptible: true
@@ -460,3 +464,34 @@ rollback:staging:
     - remote "bash -s -- status" < deploy/staging/deploy.sh
     - make release-check STAGING_URL="$STAGING_URL" EXPECT="${TARGET##*:}"
     - remote "bash -s -- mark-good $TARGET" < deploy/staging/deploy.sh
+
+# ------------------------------------------------------------ ЛР7: Ansible --
+#
+# Инфраструктура описана кодом в ansible/ (docs/ANSIBLE.md). Тот же процесс,
+# что и для приложения: проверка в каждом pipeline, применение — только из main.
+
+.ansible:
+  image: $PYTHON_IMAGE
+  dependencies: []
+  variables:
+    # Runner клонирует проект в общедоступный для записи каталог — тогда
+    # Ansible сам ansible.cfg не читает, поэтому путь задан явно.
+    ANSIBLE_CONFIG: "$CI_PROJECT_DIR/ansible/ansible.cfg"
+    ANSIBLE_FORCE_COLOR: "1"
+  cache:
+    key:
+      files: [ansible/requirements.txt]
+      prefix: ansible
+    paths:
+      - .venv-ansible/
+      - .cache/pip/
+  before_script:
+    - *apt_tools
+    - make infra-setup
+
+# Нет открытых секретов, синтаксис обоих окружений, ansible-lint (профиль production).
+infra:lint:
+  stage: quality
+  extends: .ansible
+  script:
+    - make infra-lint
