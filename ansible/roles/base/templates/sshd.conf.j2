@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# ЛР2/ЛР7: настройки SSH сервера. Файл подключается в начале sshd_config,
+# поэтому его значения главнее остальных.
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication {{ 'yes' if base_ssh_password_authentication else 'no' }}
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+X11Forwarding no
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2

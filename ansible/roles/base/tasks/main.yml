@@ -32,3 +32,36 @@
   loop: "{{ base_admin_ssh_public_keys }}"
   loop_control:
     loop_var: base_key
+
+- name: Подключить каталог sshd_config.d (в Debian уже подключён)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    line: Include /etc/ssh/sshd_config.d/*.conf
+    insertbefore: BOF
+    mode: "0644"
+  notify: Перезагрузить SSH
+
+- name: Настроить SSH (без root и паролей)
+  ansible.builtin.template:
+    src: sshd.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-city-duma.conf
+    owner: root
+    group: root
+    mode: "0644"
+    # Ошибка в настройке не должна отрезать доступ к серверу.
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Перезагрузить SSH
+
+- name: Включить SSH при загрузке
+  ansible.builtin.service:
+    name: ssh
+    enabled: true
+    state: started
+
+- name: Создать каталог окружений /srv
+  ansible.builtin.file:
+    path: /srv
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
