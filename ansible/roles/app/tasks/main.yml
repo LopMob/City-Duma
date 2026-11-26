@@ -164,3 +164,50 @@
 - name: Запомнить, был ли выпуск в этом запуске
   ansible.builtin.set_fact:
     app_released: "{{ app_deploy is changed }}"
+
+# ------------------------------------------------------------- проверка --
+
+# Проверка снаружи (с машины, где запущен Ansible): так заодно видно, что
+# firewall пропускает клиентов к приложению.
+- name: Дождаться ответа /health
+  ansible.builtin.uri:
+    url: "{{ app_check_url }}/health"
+    return_content: true
+  register: app_health
+  until: app_health.status | default(0) == 200
+  retries: "{{ app_check_retries }}"
+  delay: 5
+  delegate_to: localhost
+  become: false
+
+- name: Узнать работающую версию (/version)
+  ansible.builtin.uri:
+    url: "{{ app_check_url }}/version"
+    return_content: true
+  register: app_version_info
+  delegate_to: localhost
+  become: false
+
+- name: Проверить окружение и версию
+  ansible.builtin.assert:
+    that:
+      - app_version_info.json.environment == env_name
+      - not app_released or app_version_info.json.version == (app_start_image.split(':') | last)
+    fail_msg: "Запущено не то: {{ app_version_info.json }}"
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Проверить, что открывается веб-интерфейс
+  ansible.builtin.uri:
+    url: "{{ app_check_url }}/ui/"
+  delegate_to: localhost
+  become: false
+
+- name: Принять выпуск после проверки (deploy.sh mark-good)
+  ansible.builtin.command:
+    cmd: "{{ app_deploy_dir }}/deploy.sh mark-good {{ app_start_image }}"
+  environment: "{{ app_deploy_environment }}"
+  become: true
+  become_user: "{{ app_deploy_user }}"
+  when: app_released
+  changed_when: true
