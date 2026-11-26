@@ -1,0 +1,31 @@
+---
+# ---------------------------------------------------------- пользователь --
+
+- name: Создать пользователя deploy (без пароля, только ключ)
+  ansible.builtin.user:
+    name: "{{ app_deploy_user }}"
+    shell: /bin/bash
+    create_home: true
+    # Группа docker = права на Docker, поэтому учётка только для развёртывания.
+    groups: docker
+    append: true
+    password_lock: true
+  register: app_user
+
+- name: Создать каталог .ssh пользователя deploy
+  ansible.builtin.file:
+    path: "{{ app_user.home }}/.ssh"
+    state: directory
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0700"
+
+- name: Разрешить вход ключу pipeline (restrict, from=)
+  ansible.builtin.copy:
+    dest: "{{ app_user.home }}/.ssh/authorized_keys"
+    content: |
+      restrict,from="{{ app_deploy_ssh_from | join(',') }}" {{ app_deploy_ssh_public_key }}
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0600"
+  when: app_deploy_ssh_public_key | length > 0

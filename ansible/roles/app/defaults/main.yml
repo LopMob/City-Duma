@@ -1,0 +1,40 @@
+---
+# Роль app: окружение приложения на сервере (ЛР6) — пользователь deploy,
+# каталог, настройки, файлы compose, доступ к registry, запуск и проверка.
+app_deploy_user: deploy
+app_port: 8000
+# Порт приложения слушает все интерфейсы; доступ ограничивает firewall.
+app_bind: 0.0.0.0
+app_deploy_dir: "/srv/city-duma-{{ env_name }}"
+app_compose_project: "city-duma-{{ env_name }}"
+app_mem_limit: 256m
+
+app_postgres_user: duma
+app_postgres_db: city_duma
+app_postgres_password: ""
+
+app_image_repo: ""
+# Тег, который запустить, если в окружении ещё нет проверенного релиза.
+app_version: ""
+app_registry: "{{ app_image_repo.split('/') | first }}"
+app_registry_user: ""
+app_registry_token: ""
+
+# Ключ pipeline для пользователя deploy: только команды, без терминала
+# и пробросов, и только из сетей Docker (откуда подключаются jobs).
+app_deploy_ssh_public_key: ""
+app_deploy_ssh_from:
+  - 172.16.0.0/12
+  - 127.0.0.1
+
+# Проверка после настройки — снаружи, с машины, где запущен Ansible.
+app_check_url: "http://{{ ansible_host }}:{{ app_port }}"
+app_check_retries: 24
+
+# Корень репозитория: отсюда берутся compose.yaml и deploy.sh.
+app_repo_root: "{{ playbook_dir | dirname }}"
+
+# Переменные для deploy/staging/deploy.sh: каталог и имя compose-проекта.
+app_deploy_environment:
+  DEPLOY_DIR: "{{ app_deploy_dir }}"
+  COMPOSE_PROJECT: "{{ app_compose_project }}"
