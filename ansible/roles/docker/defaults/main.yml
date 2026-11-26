@@ -1,0 +1,11 @@
+---
+# Роль docker: Docker Engine и плагин Compose из официального репозитория.
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-compose-plugin
+
+docker_apt_distribution: "{{ ansible_facts['distribution'] | lower }}"
+docker_apt_release: "{{ ansible_facts['distribution_release'] }}"
+docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"

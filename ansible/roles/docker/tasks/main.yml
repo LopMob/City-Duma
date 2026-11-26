@@ -1,0 +1,66 @@
+---
+# Если Docker уже стоит из пакета дистрибутива (docker.io), пакеты
+# docker-ce с ним конфликтуют — тогда используем установленный.
+- name: Проверить, установлен ли Docker из пакета дистрибутива
+  ansible.builtin.command:
+    cmd: dpkg-query -W -f=${Status} docker.io
+  register: docker_distro_pkg
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Установить Docker из официального репозитория
+  when: "'install ok installed' not in docker_distro_pkg.stdout"
+  block:
+    - name: Создать каталог ключей apt
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Скачать ключ репозитория Docker
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ docker_apt_distribution }}/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    # Тот же файл и та же строка, что делает установщик get.docker.com:
+    # на ВМ, где Docker ставили вручную, ничего не меняется.
+    - name: Подключить репозиторий Docker
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        content: >
+          deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ docker_apt_distribution }}
+          {{ docker_apt_release }} stable
+        owner: root
+        group: root
+        mode: "0644"
+      register: docker_repo
+
+    - name: Установить пакеты Docker
+      ansible.builtin.apt:
+        name: "{{ docker_packages }}"
+        state: present
+        update_cache: "{{ docker_repo is changed }}"
+
+- name: Включить Docker при загрузке
+  ansible.builtin.service:
+    name: docker
+    enabled: true
+    state: started
+
+# Новые настройки демона нужны до запуска приложения.
+- name: Применить изменения Docker сразу
+  ansible.builtin.meta: flush_handlers
+
+- name: Проверить, что есть docker compose
+  ansible.builtin.command:
+    cmd: docker compose version
+  changed_when: false
+  # В режиме --check на чистой машине Docker ещё не установлен.
+  when: not ansible_check_mode
