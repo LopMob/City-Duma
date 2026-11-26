@@ -1,0 +1,7 @@
+{
+  "auths": {
+    "{{ app_registry }}": {
+      "auth": "{{ (app_registry_user ~ ':' ~ app_registry_token) | b64encode }}"
+    }
+  }
+}

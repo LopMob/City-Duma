@@ -1,0 +1,22 @@
+---
+# Роль firewall: iptables (требование ЛР2). Всё, что не разрешено, — запрещено.
+firewall_ssh_port: 22
+# Откуда разрешён SSH.
+firewall_ssh_sources: "{{ admin_networks + firewall_control_node_sources }}"
+# Адрес машины, откуда запущен Ansible: даже если она в другой сети,
+# доступ к серверу после включения firewall не пропадёт.
+firewall_control_node_sources: "{{ [control_node_ip ~ '/32'] if control_node_ip | default('') | length > 0 else [] }}"
+# Дополнительные порты самого хоста: [{port: 80, proto: tcp, comment: http}]
+firewall_open_ports: []
+# Интерфейсы, трафику с которых хост доверяет (например, сети Docker).
+firewall_trusted_interfaces: []
+
+# Порты контейнеров идут мимо INPUT (Docker делает DNAT в FORWARD),
+# поэтому снаружи их ограничивает отдельная цепочка в DOCKER-USER:
+# доступны только перечисленные опубликованные порты.
+firewall_restrict_docker: true
+firewall_docker_ports: []
+firewall_external_interface: "{{ ansible_facts['default_ipv4']['interface'] }}"
+
+# Писать в журнал ядра отброшенные пакеты (с ограничением частоты).
+firewall_log_dropped: true

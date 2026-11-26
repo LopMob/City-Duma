@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+# Правила iptables сервера «Городской Думы» (ЛР2, ЛР7).
+#   apply — применить правила;
+#   check — проверить, что правила не меняли вручную (код 0 — не меняли);
+#   show  — показать действующие правила проекта.
+#
+# Меняются только свои цепочки CITY-DUMA-INPUT и CITY-DUMA-DOCKER.
+# Политика INPUT остаётся ACCEPT, а запрет — последнее правило своей цепочки:
+# пока цепочка пересоздаётся, текущее SSH-подключение не обрывается.
+set -euo pipefail
+
+STATE=/run/city-duma-firewall.state
+
+show() {
+    iptables -S CITY-DUMA-INPUT 2>&1 || true
+    iptables -S INPUT 2>&1 | grep -- '-j CITY-DUMA-INPUT' || true
+{% if firewall_restrict_docker %}
+    iptables -S CITY-DUMA-DOCKER 2>&1 || true
+    iptables -S DOCKER-USER 2>&1 | grep -- '-j CITY-DUMA-DOCKER' || true
+{% endif %}
+}
+
+apply_input() {
+    iptables -N CITY-DUMA-INPUT 2>/dev/null || true
+    iptables -F CITY-DUMA-INPUT
+    iptables -A CITY-DUMA-INPUT -i lo -j ACCEPT
+    iptables -A CITY-DUMA-INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -A CITY-DUMA-INPUT -m conntrack --ctstate INVALID -j DROP
+    iptables -A CITY-DUMA-INPUT -p icmp -j ACCEPT
+{% for iface in firewall_trusted_interfaces %}
+    iptables -A CITY-DUMA-INPUT -i {{ iface }} -m comment --comment "trusted {{ iface }}" -j ACCEPT
+{% endfor %}
+{% for source in firewall_ssh_sources %}
+    iptables -A CITY-DUMA-INPUT -s {{ source }} -p tcp --dport {{ firewall_ssh_port }} -m comment --comment "ssh" -j ACCEPT
+{% endfor %}
+{% for item in firewall_open_ports %}
+    iptables -A CITY-DUMA-INPUT -p {{ item.proto | default('tcp') }} --dport {{ item.port }} -m comment --comment "{{ item.comment | default('port') }}" -j ACCEPT
+{% endfor %}
+{% if firewall_log_dropped %}
+    iptables -A CITY-DUMA-INPUT -m limit --limit 5/min -j LOG --log-prefix "city-duma-drop: "
+{% endif %}
+    iptables -A CITY-DUMA-INPUT -j DROP
+    iptables -C INPUT -j CITY-DUMA-INPUT 2>/dev/null || iptables -I INPUT 1 -j CITY-DUMA-INPUT
+}
+
+apply_docker() {
+{% if firewall_restrict_docker %}
+    # DOCKER-USER создаёт Docker; если он ещё не запущен — создаём сами,
+    # Docker подхватит существующую цепочку.
+    iptables -N DOCKER-USER 2>/dev/null || true
+    iptables -N CITY-DUMA-DOCKER 2>/dev/null || true
+    iptables -F CITY-DUMA-DOCKER
+    iptables -A CITY-DUMA-DOCKER -i {{ firewall_external_interface }} -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+{% for port in firewall_docker_ports %}
+    # После DNAT порт назначения уже внутренний, поэтому смотрим исходный (ctorigdstport).
+    iptables -A CITY-DUMA-DOCKER -i {{ firewall_external_interface }} -p tcp -m conntrack --ctorigdstport {{ port }} -m comment --comment "published {{ port }}" -j RETURN
+{% endfor %}
+    iptables -A CITY-DUMA-DOCKER -i {{ firewall_external_interface }} -j DROP
+    iptables -C DOCKER-USER -j CITY-DUMA-DOCKER 2>/dev/null || iptables -I DOCKER-USER 1 -j CITY-DUMA-DOCKER
+{% else %}
+    # Ограничение портов контейнеров выключено: убрать цепочку, если была.
+    iptables -D DOCKER-USER -j CITY-DUMA-DOCKER 2>/dev/null || true
+    iptables -F CITY-DUMA-DOCKER 2>/dev/null || true
+    iptables -X CITY-DUMA-DOCKER 2>/dev/null || true
+{% endif %}
+}
+
+case "${1:-}" in
+    apply)
+        apply_input
+        apply_docker
+        show > "$STATE"
+        echo "Правила применены:"
+        cat "$STATE"
+        ;;
+    check)
+        [[ -f "$STATE" ]] || { echo "Правила ещё не применялись"; exit 1; }
+        if ! diff -u "$STATE" <(show); then
+            echo "Правила изменены вручную"
+            exit 1
+        fi
+        echo "Правила совпадают с применёнными"
+        ;;
+    show)
+        show
+        ;;
+    *)
+        echo "Использование: $0 apply|check|show" >&2
+        exit 2
+        ;;
+esac

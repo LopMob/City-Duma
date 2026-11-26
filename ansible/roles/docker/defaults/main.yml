@@ -1,0 +1,17 @@
+---
+# Роль docker: Docker Engine и плагин Compose из официального репозитория.
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-compose-plugin
+
+docker_apt_distribution: "{{ ansible_facts['distribution'] | lower }}"
+docker_apt_release: "{{ ansible_facts['distribution_release'] }}"
+docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+
+# /etc/docker/daemon.json: registry по HTTP и ограничение размера журналов.
+docker_manage_daemon_config: true
+docker_insecure_registries: []
+docker_log_max_size: 10m
+docker_log_max_file: "3"

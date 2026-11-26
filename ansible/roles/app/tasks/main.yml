@@ -1,0 +1,213 @@
+---
+# ---------------------------------------------------------- пользователь --
+
+- name: Создать пользователя deploy (без пароля, только ключ)
+  ansible.builtin.user:
+    name: "{{ app_deploy_user }}"
+    shell: /bin/bash
+    create_home: true
+    # Группа docker = права на Docker, поэтому учётка только для развёртывания.
+    groups: docker
+    append: true
+    password_lock: true
+  register: app_user
+
+- name: Создать каталог .ssh пользователя deploy
+  ansible.builtin.file:
+    path: "{{ app_user.home }}/.ssh"
+    state: directory
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0700"
+
+- name: Разрешить вход ключу pipeline (restrict, from=)
+  ansible.builtin.copy:
+    dest: "{{ app_user.home }}/.ssh/authorized_keys"
+    content: |
+      restrict,from="{{ app_deploy_ssh_from | join(',') }}" {{ app_deploy_ssh_public_key }}
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0600"
+  when: app_deploy_ssh_public_key | length > 0
+
+# ------------------------------------------------------------ окружение --
+
+- name: Создать каталоги окружения
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0750"
+  loop:
+    - "{{ app_deploy_dir }}"
+    - "{{ app_deploy_dir }}/state"
+  loop_control:
+    loop_var: app_dir
+
+- name: Записать настройки окружения (.env)
+  ansible.builtin.template:
+    src: app.env.j2
+    dest: "{{ app_deploy_dir }}/.env"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0600"
+  # В выводе --diff был бы пароль БД.
+  diff: false
+  notify: Перезапустить приложение
+
+- name: Скопировать файлы compose
+  ansible.builtin.copy:
+    src: "{{ app_repo_root }}/{{ app_file }}"
+    dest: "{{ app_deploy_dir }}/{{ app_file }}"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0640"
+  loop:
+    - compose.yaml
+    - compose.deploy.yaml
+  loop_control:
+    loop_var: app_file
+  notify: Перезапустить приложение
+
+- name: Скопировать скрипт развёртывания
+  ansible.builtin.copy:
+    src: "{{ app_repo_root }}/deploy/staging/deploy.sh"
+    dest: "{{ app_deploy_dir }}/deploy.sh"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0750"
+
+# ------------------------------------------------------------- registry --
+
+- name: Создать каталог настроек Docker пользователя deploy
+  ansible.builtin.file:
+    path: "{{ app_user.home }}/.docker"
+    state: directory
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0700"
+
+# То же, что делает docker login, но без интерактивного ввода пароля.
+- name: Записать доступ к registry (deploy token)
+  ansible.builtin.template:
+    src: docker-config.json.j2
+    dest: "{{ app_user.home }}/.docker/config.json"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0600"
+  diff: false
+  when: app_registry_user | length > 0
+
+# --------------------------------------------------------------- запуск --
+
+# Файлы состояния пишет deploy.sh (ЛР6): deployed — что запущено,
+# current — последняя версия, прошедшая проверку релиза.
+- name: Прочитать, какой образ запущен
+  ansible.builtin.slurp:
+    src: "{{ app_deploy_dir }}/state/deployed"
+  register: app_state_deployed
+  failed_when: false
+
+- name: Прочитать последний проверенный образ
+  ansible.builtin.slurp:
+    src: "{{ app_deploy_dir }}/state/current"
+  register: app_state_current
+  failed_when: false
+
+- name: Запомнить запущенный и проверенный образы
+  ansible.builtin.set_fact:
+    app_running_image: "{{ app_state_deployed.content | default('') | b64decode | trim }}"
+    app_verified_image: "{{ app_state_current.content | default('') | b64decode | trim }}"
+
+# Если изменились .env или compose — контейнеры пересоздаются сейчас.
+- name: Применить изменения настроек приложения
+  ansible.builtin.meta: flush_handlers
+
+- name: Проверить контейнеры приложения (deploy.sh status)
+  ansible.builtin.command:
+    cmd: "{{ app_deploy_dir }}/deploy.sh status"
+  environment: "{{ app_deploy_environment }}"
+  become: true
+  become_user: "{{ app_deploy_user }}"
+  register: app_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# Работающую версию Ansible не меняет (её обновляет CI). Если приложение
+# не запущено — поднимаем последний проверенный релиз или app_version.
+- name: Выбрать образ для запуска
+  ansible.builtin.set_fact:
+    app_start_image: >-
+      {{ app_verified_image if app_verified_image | length > 0
+      else ((app_image_repo ~ ':' ~ app_version) if app_version | length > 0 else '') }}
+
+- name: Запустить приложение
+  when: app_status.rc != 0
+  block:
+    - name: Проверить, что известно, какую версию запускать
+      ansible.builtin.assert:
+        that: app_start_image | length > 0
+        fail_msg: Приложение не запущено, а версия не задана — укажите app_version.
+        quiet: true
+
+    - name: Развернуть образ из registry (deploy.sh deploy)
+      ansible.builtin.command:
+        cmd: "{{ app_deploy_dir }}/deploy.sh deploy {{ app_start_image }}"
+      environment: "{{ app_deploy_environment }}"
+      become: true
+      become_user: "{{ app_deploy_user }}"
+      register: app_deploy
+      changed_when: true
+
+- name: Запомнить, был ли выпуск в этом запуске
+  ansible.builtin.set_fact:
+    app_released: "{{ app_deploy is changed }}"
+
+# ------------------------------------------------------------- проверка --
+
+# Проверка снаружи (с машины, где запущен Ansible): так заодно видно, что
+# firewall пропускает клиентов к приложению.
+- name: Дождаться ответа /health
+  ansible.builtin.uri:
+    url: "{{ app_check_url }}/health"
+    return_content: true
+  register: app_health
+  until: app_health.status | default(0) == 200
+  retries: "{{ app_check_retries }}"
+  delay: 5
+  delegate_to: localhost
+  become: false
+
+- name: Узнать работающую версию (/version)
+  ansible.builtin.uri:
+    url: "{{ app_check_url }}/version"
+    return_content: true
+  register: app_version_info
+  delegate_to: localhost
+  become: false
+
+- name: Проверить окружение и версию
+  ansible.builtin.assert:
+    that:
+      - app_version_info.json.environment == env_name
+      - not app_released or app_version_info.json.version == (app_start_image.split(':') | last)
+    fail_msg: "Запущено не то: {{ app_version_info.json }}"
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Проверить, что открывается веб-интерфейс
+  ansible.builtin.uri:
+    url: "{{ app_check_url }}/ui/"
+  delegate_to: localhost
+  become: false
+
+- name: Принять выпуск после проверки (deploy.sh mark-good)
+  ansible.builtin.command:
+    cmd: "{{ app_deploy_dir }}/deploy.sh mark-good {{ app_start_image }}"
+  environment: "{{ app_deploy_environment }}"
+  become: true
+  become_user: "{{ app_deploy_user }}"
+  when: app_released
+  changed_when: true

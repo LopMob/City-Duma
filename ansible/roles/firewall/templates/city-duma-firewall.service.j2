@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+[Unit]
+Description=City Duma: правила iptables
+After=network-pre.target docker.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/city-duma-firewall apply
+
+[Install]
+WantedBy=multi-user.target
