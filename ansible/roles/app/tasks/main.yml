@@ -98,3 +98,69 @@
     mode: "0600"
   diff: false
   when: app_registry_user | length > 0
+
+# --------------------------------------------------------------- запуск --
+
+# Файлы состояния пишет deploy.sh (ЛР6): deployed — что запущено,
+# current — последняя версия, прошедшая проверку релиза.
+- name: Прочитать, какой образ запущен
+  ansible.builtin.slurp:
+    src: "{{ app_deploy_dir }}/state/deployed"
+  register: app_state_deployed
+  failed_when: false
+
+- name: Прочитать последний проверенный образ
+  ansible.builtin.slurp:
+    src: "{{ app_deploy_dir }}/state/current"
+  register: app_state_current
+  failed_when: false
+
+- name: Запомнить запущенный и проверенный образы
+  ansible.builtin.set_fact:
+    app_running_image: "{{ app_state_deployed.content | default('') | b64decode | trim }}"
+    app_verified_image: "{{ app_state_current.content | default('') | b64decode | trim }}"
+
+# Если изменились .env или compose — контейнеры пересоздаются сейчас.
+- name: Применить изменения настроек приложения
+  ansible.builtin.meta: flush_handlers
+
+- name: Проверить контейнеры приложения (deploy.sh status)
+  ansible.builtin.command:
+    cmd: "{{ app_deploy_dir }}/deploy.sh status"
+  environment: "{{ app_deploy_environment }}"
+  become: true
+  become_user: "{{ app_deploy_user }}"
+  register: app_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# Работающую версию Ansible не меняет (её обновляет CI). Если приложение
+# не запущено — поднимаем последний проверенный релиз или app_version.
+- name: Выбрать образ для запуска
+  ansible.builtin.set_fact:
+    app_start_image: >-
+      {{ app_verified_image if app_verified_image | length > 0
+      else ((app_image_repo ~ ':' ~ app_version) if app_version | length > 0 else '') }}
+
+- name: Запустить приложение
+  when: app_status.rc != 0
+  block:
+    - name: Проверить, что известно, какую версию запускать
+      ansible.builtin.assert:
+        that: app_start_image | length > 0
+        fail_msg: Приложение не запущено, а версия не задана — укажите app_version.
+        quiet: true
+
+    - name: Развернуть образ из registry (deploy.sh deploy)
+      ansible.builtin.command:
+        cmd: "{{ app_deploy_dir }}/deploy.sh deploy {{ app_start_image }}"
+      environment: "{{ app_deploy_environment }}"
+      become: true
+      become_user: "{{ app_deploy_user }}"
+      register: app_deploy
+      changed_when: true
+
+- name: Запомнить, был ли выпуск в этом запуске
+  ansible.builtin.set_fact:
+    app_released: "{{ app_deploy is changed }}"
