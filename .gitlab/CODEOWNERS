@@ -46,8 +46,13 @@
 /compose.deploy.yaml          @stepanstoliarzh @LopMob @NoName1226
 /scripts/release_check.py     @stepanstoliarzh @LopMob @NoName1226
 
+# ЛР7: инфраструктурный код — роли, шаблоны, окружения и секреты (vault.yml)
+/ansible/                     @stepanstoliarzh @LopMob @NoName1226
+/scripts/vault_check.py       @stepanstoliarzh @LopMob @NoName1226
+
 # Правила приёмки
 /CONTRIBUTING.md              @stepanstoliarzh @LopMob @NoName1226
 /docs/CI.md                   @stepanstoliarzh @LopMob @NoName1226
 /docs/VERIFY.md               @stepanstoliarzh @LopMob @NoName1226
 /docs/CD.md                   @stepanstoliarzh @LopMob @NoName1226
+/docs/ANSIBLE.md              @stepanstoliarzh @LopMob @NoName1226
