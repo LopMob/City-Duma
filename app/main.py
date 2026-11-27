@@ -82,6 +82,19 @@ def database_available(db: Session) -> bool:
     return True
 
 
+@app.get("/ready")
+def ready(db: DbSession):
+    """Готово ли приложение обслуживать запросы (readiness): проверяет БД.
+
+    ЛР8, инцидент INCIDENT-001: /health отвечал «ok» при остановленной БД.
+    """
+    if database_available(db):
+        return {"status": "ok", "database": "ok"}
+    return JSONResponse(
+        status_code=503, content={"status": "error", "database": "unavailable"}
+    )
+
+
 @app.get("/version")
 def version():
     """Какая версия запущена: тег/короткий SHA и полный SHA коммита (ЛР6)."""
