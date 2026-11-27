@@ -3,7 +3,8 @@
 	container-backup container-restore container-restore-new container-lint container-check \
 	reports-dir quality-report sast-report db-wait migrate-check backup-check \
 	deps-audit deps-audit-report secrets image-scan guard ci-local release-check \
-	infra-setup infra-lint infra-check infra-apply infra-vault
+	infra-setup infra-lint infra-check infra-apply infra-vault \
+	monitoring-up monitoring-down monitoring-check logs
 
 setup:
 	python3 -m venv venv
@@ -187,3 +188,31 @@ infra-vault:
 	else \
 		$(ANSIBLE_BIN)/ansible-vault create --vault-password-file $(VAULT_PASS_FILE) $(VAULT_FILE); \
 	fi
+
+# ---- ЛР8: наблюдаемость (подробности — docs/OBSERVABILITY.md) ----
+
+PROMETHEUS_IMAGE ?= prom/prometheus:v3.1.0
+MONITORING = docker compose -p city-duma-monitoring -f monitoring/compose.monitoring.yaml \
+	--env-file monitoring/.env
+
+# Prometheus, Grafana, node-exporter и cAdvisor рядом с локальным приложением
+# (сначала make container-up). Grafana: http://127.0.0.1:3000, Prometheus: :9090.
+monitoring-up:
+	@test -f monitoring/.env || { echo "Нет monitoring/.env: cp monitoring/.env.example monitoring/.env и задайте пароль"; exit 1; }
+	$(MONITORING) up -d --wait
+
+monitoring-down:
+	$(MONITORING) down
+
+# То же, что job monitoring:check в CI: синтаксис и тесты правил оповещения.
+monitoring-check:
+	docker run --rm -v "$(CURDIR)/monitoring/prometheus:/etc/prometheus:ro" -w /etc/prometheus \
+		--entrypoint promtool $(PROMETHEUS_IMAGE) check config prometheus.yml
+	docker run --rm -v "$(CURDIR)/monitoring/prometheus:/etc/prometheus:ro" -w /etc/prometheus \
+		--entrypoint promtool $(PROMETHEUS_IMAGE) check rules alerts.yml
+	docker run --rm -v "$(CURDIR)/monitoring/prometheus:/etc/prometheus:ro" -w /etc/prometheus \
+		--entrypoint promtool $(PROMETHEUS_IMAGE) test rules alerts.test.yml
+
+# Журнал приложения (JSON, по строке на событие). Фильтр: make logs | grep '"level": "ERROR"'
+logs:
+	$(COMPOSE) logs app --no-log-prefix --tail=200

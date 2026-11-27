@@ -49,6 +49,8 @@ variables:
   PYTHON_IMAGE: "python:3.11.13-slim-bookworm"
   POSTGRES_IMAGE: "postgres:16.10-alpine"
   POSTGRES_CLIENT_IMAGE: "postgres:16.10-bookworm"
+  # ЛР8: тот же образ, что в monitoring/compose.monitoring.yaml (promtool внутри).
+  PROMETHEUS_IMAGE: "prom/prometheus:v3.1.0"
   DOCKER_VERSION: "29.9.3"
   GITLEAKS_IMAGE: "zricethezav/gitleaks:v8.30.1"
   TRIVY_IMAGE: "aquasec/trivy:0.71.2"
@@ -546,3 +548,23 @@ infra:apply:production:
       allow_failure: true
   script:
     - make infra-apply ENV=production HOST="$PRODUCTION_HOST" SSH_USER="$PRODUCTION_SSH_USER" VAULT_PASS_FILE="$ANSIBLE_VAULT_PASSWORD"
+
+# -------------------------------------------------------- ЛР8: наблюдаемость --
+#
+# Конфигурация мониторинга — такой же код, как приложение: ошибка в правиле
+# оповещения или в prometheus.yml не должна обнаружиться только во время
+# инцидента. promtool проверяет синтаксис и прогоняет тесты правил
+# (alerts.test.yml): каждое правило должно срабатывать на своём сценарии.
+# Согласованность метрик приложения, панели и правил проверяет make test
+# (tests/unit/test_monitoring_config.py).
+monitoring:check:
+  stage: quality
+  image:
+    name: $PROMETHEUS_IMAGE
+    entrypoint: [""]
+  dependencies: []
+  script:
+    - cd monitoring/prometheus
+    - promtool check config prometheus.yml
+    - promtool check rules alerts.yml
+    - promtool test rules alerts.test.yml

@@ -1,0 +1,103 @@
+# ЛР8, п.8: правила обнаружения проблем. Для каждого правила в annotations.runbook —
+# раздел инструкции docs/RUNBOOK.md, а в alerts.test.yml — тест (promtool test rules).
+groups:
+  - name: city-duma-app
+    rules:
+      - alert: AppDown
+        expr: up{job="app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Приложение не отвечает на /metrics
+          description: Prometheus больше минуты не может получить метрики приложения — контейнер остановлен, падает при запуске или недоступен по сети.
+          runbook: docs/RUNBOOK.md#AppDown
+
+      - alert: AppDatabaseDown
+        expr: app_db_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Приложение не может подключиться к базе данных
+          description: Процесс жив (/health отвечает), но запрос SELECT 1 к PostgreSQL не проходит — /ready отвечает 503.
+          runbook: docs/RUNBOOK.md#AppDatabaseDown
+
+      - alert: AppHighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Больше 5% запросов завершаются ошибкой 5xx
+          description: Доля ответов 5xx за 5 минут выше 5%. Найдите в журнале записи с result=server_error или exception.
+          runbook: docs/RUNBOOK.md#AppHighErrorRate
+
+      - alert: AppUnhandledExceptions
+        expr: increase(app_unhandled_exceptions_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: В приложении необработанные исключения
+          description: За 5 минут были ответы 500 из-за необработанного исключения. Стек — в журнале (event=http_request, result=exception).
+          runbook: docs/RUNBOOK.md#AppUnhandledExceptions
+
+      - alert: AppSlowResponses
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 95% запросов дольше 1 секунды
+          description: 95-й перцентиль времени ответа выше 1 секунды 5 минут подряд.
+          runbook: docs/RUNBOOK.md#AppSlowResponses
+
+      - alert: AppRestarted
+        expr: changes(process_start_time_seconds{job="app"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Приложение перезапустилось
+          description: За 15 минут процесс приложения запускался заново — перезапуск контейнера, OOM или падение.
+          runbook: docs/RUNBOOK.md#AppRestarted
+
+      - alert: AppMemoryNearLimit
+        expr: app_memory_usage_bytes / app_memory_limit_bytes > 0.9
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Приложение использует больше 90% лимита памяти
+          description: При достижении mem_limit ядро завершит процесс (OOM), контейнер перезапустится.
+          runbook: docs/RUNBOOK.md#AppMemoryNearLimit
+
+      - alert: SecretInLogs
+        expr: increase(app_log_redactions_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: В журнал пытались записать секрет
+          description: Значение замаскировано (***), но код, который его передал, нужно исправить.
+          runbook: docs/RUNBOOK.md#SecretInLogs
+
+  - name: city-duma-host
+    rules:
+      - alert: HostDiskSpaceLow
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 0.10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: На диске меньше 10% свободного места
+          description: При нехватке места PostgreSQL перестаёт записывать данные, а Docker — создавать контейнеры.
+          runbook: docs/RUNBOOK.md#HostDiskSpaceLow
+
+      - alert: MonitoringTargetDown
+        expr: up{job!="app"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Не собираются метрики хоста или контейнеров
+          description: Экспортер (node-exporter, cadvisor) не отвечает — панель покажет неполную картину.
+          runbook: docs/RUNBOOK.md#MonitoringTargetDown

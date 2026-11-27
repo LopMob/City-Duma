@@ -48,6 +48,9 @@
 
 # ЛР7: инфраструктурный код — роли, шаблоны, окружения и секреты (vault.yml)
 /ansible/                     @stepanstoliarzh @LopMob @NoName1226
+# ЛР8: мониторинг — правила оповещения, панели, сбор метрик
+/monitoring/                  @stepanstoliarzh @LopMob @NoName1226
+/app/observability/           @stepanstoliarzh @LopMob @NoName1226
 /scripts/vault_check.py       @stepanstoliarzh @LopMob @NoName1226
 
 # Правила приёмки

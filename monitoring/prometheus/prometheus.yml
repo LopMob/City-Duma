@@ -1,0 +1,30 @@
+# ЛР8: что и как часто собирает Prometheus.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: city-duma
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  # Приложение: http://app:8000/metrics (сеть приложения, см. compose.monitoring.yaml).
+  - job_name: app
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8000"]
+
+  # Хост: CPU, память, диск, сеть.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # Контейнеры: память, CPU, перезапуски.
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
