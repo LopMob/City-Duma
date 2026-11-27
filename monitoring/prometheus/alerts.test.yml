@@ -1,0 +1,207 @@
+# ЛР8: тесты правил оповещения — promtool test rules alerts.test.yml
+# (запускаются в CI, job monitoring:check, и make monitoring-check).
+rule_files:
+- alerts.yml
+evaluation_interval: 1m
+tests:
+- interval: 1m
+  input_series:
+  - series: up{job="app", instance="app:8000"}
+    values: 1 0 0 0
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: AppDown
+    exp_alerts:
+    - exp_labels:
+        job: app
+        instance: app:8000
+        severity: critical
+      exp_annotations:
+        summary: Приложение не отвечает на /metrics
+        description: Prometheus больше минуты не может получить метрики приложения — контейнер остановлен, падает при запуске или недоступен по сети.
+        runbook: docs/RUNBOOK.md#AppDown
+- interval: 1m
+  input_series:
+  - series: app_db_up{job="app", instance="app:8000"}
+    values: 1 0 0 0
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: AppDatabaseDown
+    exp_alerts:
+    - exp_labels:
+        job: app
+        instance: app:8000
+        severity: critical
+      exp_annotations:
+        summary: Приложение не может подключиться к базе данных
+        description: Процесс жив (/health отвечает), но запрос SELECT 1 к PostgreSQL не проходит — /ready отвечает 503.
+        runbook: docs/RUNBOOK.md#AppDatabaseDown
+- interval: 1m
+  input_series:
+  - series: http_requests_total{job="app", instance="app:8000", method="GET", route="/deputies", status="500"}
+    values: 0+10x10
+  - series: http_requests_total{job="app", instance="app:8000", method="GET", route="/deputies", status="200"}
+    values: 0+10x10
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: AppHighErrorRate
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+      exp_annotations:
+        summary: Больше 5% запросов завершаются ошибкой 5xx
+        description: Доля ответов 5xx за 5 минут выше 5%. Найдите в журнале записи с result=server_error или exception.
+        runbook: docs/RUNBOOK.md#AppHighErrorRate
+- interval: 1m
+  input_series:
+  - series: app_unhandled_exceptions_total{job="app", instance="app:8000", route="/meetings"}
+    values: 0 0 1 1
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: AppUnhandledExceptions
+    exp_alerts:
+    - exp_labels:
+        job: app
+        instance: app:8000
+        route: /meetings
+        severity: warning
+      exp_annotations:
+        summary: В приложении необработанные исключения
+        description: За 5 минут были ответы 500 из-за необработанного исключения. Стек — в журнале (event=http_request, result=exception).
+        runbook: docs/RUNBOOK.md#AppUnhandledExceptions
+- interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{job="app", instance="app:8000", method="GET", route="/deputies", le="1"}
+    values: '0x10'
+  - series: http_request_duration_seconds_bucket{job="app", instance="app:8000", method="GET", route="/deputies", le="2.5"}
+    values: 0+10x10
+  - series: http_request_duration_seconds_bucket{job="app", instance="app:8000", method="GET", route="/deputies", le="+Inf"}
+    values: 0+10x10
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: AppSlowResponses
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+      exp_annotations:
+        summary: 95% запросов дольше 1 секунды
+        description: 95-й перцентиль времени ответа выше 1 секунды 5 минут подряд.
+        runbook: docs/RUNBOOK.md#AppSlowResponses
+- interval: 1m
+  input_series:
+  - series: process_start_time_seconds{job="app", instance="app:8000"}
+    values: 100 100 200 200
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: AppRestarted
+    exp_alerts:
+    - exp_labels:
+        job: app
+        instance: app:8000
+        severity: warning
+      exp_annotations:
+        summary: Приложение перезапустилось
+        description: За 15 минут процесс приложения запускался заново — перезапуск контейнера, OOM или падение.
+        runbook: docs/RUNBOOK.md#AppRestarted
+- interval: 1m
+  input_series:
+  - series: app_memory_usage_bytes{job="app", instance="app:8000"}
+    values: 250000000x5
+  - series: app_memory_limit_bytes{job="app", instance="app:8000"}
+    values: 268435456x5
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: AppMemoryNearLimit
+    exp_alerts:
+    - exp_labels:
+        job: app
+        instance: app:8000
+        severity: warning
+      exp_annotations:
+        summary: Приложение использует больше 90% лимита памяти
+        description: При достижении mem_limit ядро завершит процесс (OOM), контейнер перезапустится.
+        runbook: docs/RUNBOOK.md#AppMemoryNearLimit
+- interval: 1m
+  input_series:
+  - series: app_log_redactions_total{job="app", instance="app:8000"}
+    values: 0 0 1 1
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: SecretInLogs
+    exp_alerts:
+    - exp_labels:
+        job: app
+        instance: app:8000
+        severity: warning
+      exp_annotations:
+        summary: В журнал пытались записать секрет
+        description: Значение замаскировано (***), но код, который его передал, нужно исправить.
+        runbook: docs/RUNBOOK.md#SecretInLogs
+- interval: 1m
+  input_series:
+  - series: node_filesystem_avail_bytes{job="node", instance="node-exporter:9100", device="/dev/sda1", fstype="ext4", mountpoint="/"}
+    values: 5x10
+  - series: node_filesystem_size_bytes{job="node", instance="node-exporter:9100", device="/dev/sda1", fstype="ext4", mountpoint="/"}
+    values: 100x10
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: HostDiskSpaceLow
+    exp_alerts:
+    - exp_labels:
+        job: node
+        instance: node-exporter:9100
+        device: /dev/sda1
+        fstype: ext4
+        mountpoint: /
+        severity: critical
+      exp_annotations:
+        summary: На диске меньше 10% свободного места
+        description: При нехватке места PostgreSQL перестаёт записывать данные, а Docker — создавать контейнеры.
+        runbook: docs/RUNBOOK.md#HostDiskSpaceLow
+- interval: 1m
+  input_series:
+  - series: up{job="node", instance="node-exporter:9100"}
+    values: '0x10'
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: MonitoringTargetDown
+    exp_alerts:
+    - exp_labels:
+        job: node
+        instance: node-exporter:9100
+        severity: warning
+      exp_annotations:
+        summary: Не собираются метрики хоста или контейнеров
+        description: Экспортер (node-exporter, cadvisor) не отвечает — панель покажет неполную картину.
+        runbook: docs/RUNBOOK.md#MonitoringTargetDown
+- interval: 1m
+  input_series:
+  - series: up{job="app", instance="app:8000"}
+    values: 1x10
+  - series: app_db_up{job="app", instance="app:8000"}
+    values: 1x10
+  - series: process_start_time_seconds{job="app", instance="app:8000"}
+    values: 100x10
+  - series: app_log_redactions_total{job="app", instance="app:8000"}
+    values: 3x10
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: AppDown
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: AppDatabaseDown
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: AppRestarted
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: SecretInLogs
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: up{job="app", instance="app:8000"}
+    values: 1 0 1 1
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: AppDown
+    exp_alerts: []
