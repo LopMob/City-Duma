@@ -1,0 +1,11 @@
+# ЛР8: панели загружаются из файлов репозитория (monitoring/grafana/dashboards).
+# Изменения через интерфейс не сохраняются — правьте JSON и делайте MR.
+apiVersion: 1
+providers:
+  - name: city-duma
+    folder: Городская Дума
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards
