@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     app_version: str = "dev"
     git_commit: str = "unknown"
 
+    # ЛР8: уровень журнала (DEBUG показывает и опросы /health, /metrics).
+    log_level: str = "INFO"
+
     @field_validator("database_url")
     @classmethod
     def _only_postgresql(cls, value: str) -> str:
