@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.observability import instruments, logs
 
 
 class ConflictError(Exception):
@@ -245,6 +246,18 @@ def _ensure_quorum(db: Session, meeting: models.Meeting) -> None:
     )
     required = total_members // 2 + 1
     if present_count < required:
+        # ЛР8: предметная метрика и событие в журнале.
+        instruments.QUORUM_REJECTIONS.inc()
+        logs.get_logger().info(
+            "заседание без кворума отклонено",
+            extra={
+                "event": "quorum_rejected",
+                "meeting_id": meeting.id,
+                "present": present_count,
+                "members": total_members,
+                "required": required,
+            },
+        )
         raise ConflictError(
             f"Нет кворума: присутствует {present_count} из {total_members} членов комиссии, "
             f"требуется не менее {required}"
