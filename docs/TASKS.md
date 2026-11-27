@@ -40,3 +40,5 @@
 
 ЛР7 (Ansible): задача [`docs/tasks/ISSUE-7-ansible.md`](tasks/ISSUE-7-ansible.md),
 ветка `feature/lab7-ansible`.
+
+ЛР8 (наблюдаемость): задача [`docs/tasks/ISSUE-8-observability.md`](tasks/ISSUE-8-observability.md).
