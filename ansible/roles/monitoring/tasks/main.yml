@@ -1,0 +1,109 @@
+---
+- name: Проверить, что задан пароль Grafana (vault.yml)
+  ansible.builtin.assert:
+    that: monitoring_grafana_admin_password | length >= 12
+    fail_msg: Добавьте vault_grafana_admin_password в vault.yml окружения (make infra-vault).
+    quiet: true
+
+- name: Создать каталог мониторинга
+  ansible.builtin.file:
+    path: "{{ monitoring_dir }}"
+    state: directory
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0755"
+
+# Файлы конфигурации читают контейнеры от своих пользователей (Prometheus —
+# nobody, Grafana — 472), поэтому права 644/755. Секретов в них нет:
+# пароль Grafana — только в .env ниже. Локальный monitoring/.env машины
+# управления не копируется: берутся только перечисленные файлы и каталоги.
+- name: Скопировать конфигурацию наблюдаемости из репозитория
+  ansible.builtin.copy:
+    src: "{{ app_repo_root }}/monitoring/{{ monitoring_item }}"
+    dest: "{{ monitoring_dir }}/"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0644"
+    directory_mode: "0755"
+  loop:
+    - compose.monitoring.yaml
+    - prometheus
+    - grafana
+  loop_control:
+    loop_var: monitoring_item
+  register: monitoring_files
+
+- name: Записать настройки мониторинга (.env)
+  ansible.builtin.template:
+    src: monitoring.env.j2
+    dest: "{{ monitoring_dir }}/.env"
+    owner: "{{ app_deploy_user }}"
+    group: "{{ app_deploy_user }}"
+    mode: "0600"
+  diff: false
+  register: monitoring_env
+
+# Только чтение: какие сервисы сейчас запущены.
+- name: Узнать, какие сервисы мониторинга работают
+  ansible.builtin.command:
+    cmd: docker compose -p {{ monitoring_project }} -f compose.monitoring.yaml ps --status running --services
+    chdir: "{{ monitoring_dir }}"
+  become: true
+  become_user: "{{ app_deploy_user }}"
+  register: monitoring_running
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Решить, нужно ли (пере)запускать мониторинг
+  ansible.builtin.set_fact:
+    monitoring_config_changed: "{{ monitoring_files is changed or monitoring_env is changed }}"
+    monitoring_not_running: "{{ (monitoring_running.stdout_lines | default([]) | sort) != (monitoring_services | sort) }}"
+
+# --force-recreate при изменении файлов: Prometheus и Grafana читают
+# конфигурацию только при запуске.
+- name: Запустить мониторинг (docker compose up)
+  ansible.builtin.command:
+    cmd: >-
+      docker compose -p {{ monitoring_project }} -f compose.monitoring.yaml up -d --wait
+      --remove-orphans {{ '--force-recreate' if monitoring_config_changed else '' }}
+    chdir: "{{ monitoring_dir }}"
+  become: true
+  become_user: "{{ app_deploy_user }}"
+  when: monitoring_config_changed or monitoring_not_running
+  changed_when: true
+
+- name: Дождаться готовности Prometheus
+  ansible.builtin.uri:
+    url: "{{ monitoring_check_url }}:{{ monitoring_prometheus_port }}/-/ready"
+  register: monitoring_prometheus
+  until: monitoring_prometheus.status | default(0) == 200
+  retries: "{{ monitoring_check_retries }}"
+  delay: 5
+  delegate_to: localhost
+  become: false
+
+- name: Дождаться готовности Grafana
+  ansible.builtin.uri:
+    url: "{{ monitoring_check_url }}:{{ monitoring_grafana_port }}/api/health"
+  register: monitoring_grafana
+  until: monitoring_grafana.status | default(0) == 200
+  retries: "{{ monitoring_check_retries }}"
+  delay: 5
+  delegate_to: localhost
+  become: false
+
+# Главная проверка: Prometheus действительно получает метрики приложения.
+- name: Проверить, что Prometheus собирает метрики приложения
+  ansible.builtin.uri:
+    url: "{{ monitoring_check_url }}:{{ monitoring_prometheus_port }}/api/v1/query?query=up%7Bjob%3D%22app%22%7D"
+    return_content: true
+  register: monitoring_app_up
+  until: >-
+    monitoring_app_up.json is defined
+    and (monitoring_app_up.json.data.result | length) > 0
+    and monitoring_app_up.json.data.result[0].value[1] == '1'
+  retries: "{{ monitoring_check_retries }}"
+  delay: 5
+  delegate_to: localhost
+  become: false
