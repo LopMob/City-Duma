@@ -1,0 +1,21 @@
+---
+# Роль monitoring (ЛР8): Prometheus, Grafana, node-exporter и cAdvisor рядом
+# с приложением окружения. Конфигурация берётся из monitoring/ репозитория.
+monitoring_enabled: true
+monitoring_dir: /srv/city-duma-monitoring
+monitoring_project: city-duma-monitoring
+# Grafana и Prometheus слушают сеть; доступ — только из сети администрирования
+# (firewall_docker_admin_ports).
+monitoring_bind: 0.0.0.0
+monitoring_grafana_port: 3000
+monitoring_prometheus_port: 9090
+monitoring_grafana_admin_password: ""
+# Prometheus подключается к сети frontend приложения этого окружения.
+monitoring_app_network: "{{ app_compose_project }}_frontend"
+monitoring_services:
+  - cadvisor
+  - grafana
+  - node-exporter
+  - prometheus
+monitoring_check_url: "http://{{ ansible_host }}"
+monitoring_check_retries: 24
