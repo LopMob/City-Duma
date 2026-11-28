@@ -15,8 +15,9 @@ COMMIT = "0123456789abcdef0123456789abcdef01234567"
 class FakeApp:
     """Минимальная имитация API «Городской Думы»."""
 
-    def __init__(self, version="v0.6.0", commit=COMMIT, broken=None):
+    def __init__(self, version="v0.6.0", commit=COMMIT, broken=None, db_up=True):
         self.version, self.commit, self.broken = version, commit, broken
+        self.db_up = db_up
         self.ids = 0
         self.objects: dict[str, dict] = {}
         self.deleted: list[str] = []
@@ -32,6 +33,10 @@ class FakeApp:
             return 500, "Internal Server Error"
         if (method, path) == ("GET", "/health"):
             return 200, {"status": "ok", "environment": "staging"}
+        if (method, path) == ("GET", "/ready"):
+            if self.db_up:
+                return 200, {"status": "ok", "database": "ok"}
+            return 503, {"status": "error", "database": "unavailable"}
         if (method, path) == ("GET", "/version"):
             return 200, {
                 "version": self.version,
@@ -98,3 +103,24 @@ def test_unhealthy_app_fails():
 
     with pytest.raises(rc.CheckFailed, match="/health"):
         run(call)
+
+
+def test_release_with_unavailable_database_fails_before_version_check():
+    """ЛР8, INCIDENT-001: /health жив, а БД нет — выпуск не принимается."""
+    app = FakeApp(db_up=False)
+    with pytest.raises(rc.CheckFailed, match="/ready"):
+        run(app)
+    assert app.ids == 0  # основной сценарий даже не начинался
+
+
+def test_old_version_without_ready_endpoint_still_passes():
+    """Откат на версию до ЛР8 (нет /ready) не должен считаться ошибкой."""
+
+    class OldApp(FakeApp):
+        def __call__(self, method, path, payload):
+            if path == "/ready":
+                return 404, {"detail": "Not Found"}
+            return super().__call__(method, path, payload)
+
+    lines = run(OldApp())
+    assert any("/ready нет" in line for line in lines)
