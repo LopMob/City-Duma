@@ -18,6 +18,7 @@ app_deploy_ssh_public_key: ""
 app_postgres_password: "{{ vault_postgres_password }}"
 app_registry_user: "{{ vault_registry_user }}"
 app_registry_token: "{{ vault_registry_token }}"
+monitoring_grafana_admin_password: "{{ vault_grafana_admin_password }}"
 
 # На этой ВМ GitLab и runner сами публикуют порты через Docker,
 # поэтому ограничение опубликованных портов (DOCKER-USER) здесь выключено.

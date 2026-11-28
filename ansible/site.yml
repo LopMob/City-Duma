@@ -62,3 +62,7 @@
       tags: [firewall]
     - role: app
       tags: [app]
+    # ЛР8: Prometheus и Grafana рядом с приложением.
+    - role: monitoring
+      tags: [monitoring]
+      when: monitoring_enabled | default(true)
