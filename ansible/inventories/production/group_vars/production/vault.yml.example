@@ -13,3 +13,6 @@ vault_become_password: "замените"
 # Deploy token GitLab с правом read_registry (ЛР6).
 vault_registry_user: "staging-pull"
 vault_registry_token: "замените"
+
+# ЛР8: пароль администратора Grafana (пользователь admin).
+vault_grafana_admin_password: "замените-на-длинный-пароль"

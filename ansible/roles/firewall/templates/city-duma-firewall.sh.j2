@@ -57,6 +57,11 @@ apply_docker() {
     # После DNAT порт назначения уже внутренний, поэтому смотрим исходный (ctorigdstport).
     iptables -A CITY-DUMA-DOCKER -i {{ firewall_external_interface }} -p tcp -m conntrack --ctorigdstport {{ port }} -m comment --comment "published {{ port }}" -j RETURN
 {% endfor %}
+{% for port in firewall_docker_admin_ports %}
+{% for source in firewall_ssh_sources %}
+    iptables -A CITY-DUMA-DOCKER -i {{ firewall_external_interface }} -s {{ source }} -p tcp -m conntrack --ctorigdstport {{ port }} -m comment --comment "admin {{ port }}" -j RETURN
+{% endfor %}
+{% endfor %}
     iptables -A CITY-DUMA-DOCKER -i {{ firewall_external_interface }} -j DROP
     iptables -C DOCKER-USER -j CITY-DUMA-DOCKER 2>/dev/null || iptables -I DOCKER-USER 1 -j CITY-DUMA-DOCKER
 {% else %}

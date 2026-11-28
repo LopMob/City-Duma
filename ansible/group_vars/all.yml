@@ -28,3 +28,10 @@ app_deploy_user: deploy
 # Снаружи доступен только порт приложения; порт БД не публикуется вообще.
 firewall_docker_ports:
   - "{{ app_port }}"
+
+# ЛР8: Grafana и Prometheus — только из сети администрирования.
+monitoring_grafana_port: 3000
+monitoring_prometheus_port: 9090
+firewall_docker_admin_ports:
+  - "{{ monitoring_grafana_port }}"
+  - "{{ monitoring_prometheus_port }}"
