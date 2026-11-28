@@ -4,7 +4,7 @@
 	reports-dir quality-report sast-report db-wait migrate-check backup-check \
 	deps-audit deps-audit-report secrets image-scan guard ci-local release-check \
 	infra-setup infra-lint infra-check infra-apply infra-vault \
-	monitoring-up monitoring-down monitoring-check logs
+	monitoring-up monitoring-down monitoring-check logs snapshot
 
 setup:
 	python3 -m venv venv
@@ -194,6 +194,8 @@ infra-vault:
 PROMETHEUS_IMAGE ?= prom/prometheus:v3.1.0
 MONITORING = docker compose -p city-duma-monitoring -f monitoring/compose.monitoring.yaml \
 	--env-file monitoring/.env
+PROMETHEUS_URL ?= http://127.0.0.1:9090
+SNAPSHOT_LABEL ?= snapshot
 
 # Prometheus, Grafana, node-exporter и cAdvisor рядом с локальным приложением
 # (сначала make container-up). Grafana: http://127.0.0.1:3000, Prometheus: :9090.
@@ -216,3 +218,8 @@ monitoring-check:
 # Журнал приложения (JSON, по строке на событие). Фильтр: make logs | grep '"level": "ERROR"'
 logs:
 	$(COMPOSE) logs app --no-log-prefix --tail=200
+
+# Снимок состояния до/после выпуска (ЛР8, п.12): docs/releases/<время>-<метка>.md
+snapshot:
+	python scripts/release_snapshot.py --url $(STAGING_URL) --prometheus $(PROMETHEUS_URL) \
+		--label $(SNAPSHOT_LABEL)
