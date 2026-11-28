@@ -3,7 +3,7 @@
 Успешная сборка не равна успешному релизу: версия принимается, только если
 в целевом окружении:
 
-  1. /health отвечает 200 и status=ok;
+  1. /health отвечает 200 и status=ok, /ready — 200 и database=ok (ЛР8);
   2. /version показывает ожидаемую версию (тег или SHA коммита) — запущено
      именно то, что выкатывали, а не старый контейнер;
   3. веб-интерфейс /ui/ открывается;
@@ -101,6 +101,22 @@ class ReleaseCheck:
         body = expect_status(self.call("GET", "/health", None), 200, "/health")
         if not isinstance(body, dict) or body.get("status") != "ok":
             raise CheckFailed(f"/health: неожиданный ответ {body}")
+
+        # ЛР8, INCIDENT-001: /health отвечал «ok» при остановленной БД,
+        # поэтому выпуск проверяет ещё и готовность — доступность базы данных.
+        # У версий до ЛР8 адреса /ready нет (404) — откат на них не ломается.
+        self.step("/ready (база данных)")
+        status, ready = self.call("GET", "/ready", None)
+        if status == 404:
+            self.log("    /ready нет в этой версии (до ЛР8) — пропущено")
+        elif (
+            status != 200
+            or not isinstance(ready, dict)
+            or ready.get("database") != "ok"
+        ):
+            raise CheckFailed(
+                f"/ready: база данных недоступна (HTTP {status}: {ready})"
+            )
 
         self.step("/version")
         info = expect_status(self.call("GET", "/version", None), 200, "/version")
